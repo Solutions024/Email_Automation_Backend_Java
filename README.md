@@ -43,7 +43,7 @@ Open `.env` in an editor and set at least:
 
 Leave `DB_HOST` / `DB_PORT` as they are: Docker sets them to the MySQL container itself.
 
-### Step 3 — Build and start
+### Step 3 — Build and start in one single command (This single command will build and run the Container. There is no need for extra run command)
 
 ```powershell
 docker compose up -d --build
