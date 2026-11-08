@@ -30,8 +30,32 @@ API docs: http://localhost:8000/docs (Swagger UI) and /openapi.json.
 
 ## Docker
 
+Recommended: the backend together with its own MySQL (`docker-compose.yml`). Copy `.env.example` to `.env`
+first; the MySQL container's root password is the `DB_PASSWORD` from `.env`.
+
+    docker compose up --build          # logs in the terminal, Ctrl+C stops
+    docker compose up -d --build       # in the background; docker compose logs -f backend
+    docker compose down                # stop (add -v to also delete the database)
+
+A clean start looks like this:
+
+    INFO: Application log: /app/logs
+    INFO: NPSB Dispute Email Automation started
+    INFO: Listening on http://0.0.0.0:8000
+
+The database lives in the `mysql-data` volume. From MySQL Workbench on the computer: host `127.0.0.1`,
+port `3307` (3306 is left free for a MySQL installed on the computer).
+
+Only the image, against a MySQL that runs on the computer itself:
+
     docker build -t npsb-backend .
-    docker run -p 8000:8000 --env-file .env npsb-backend
+    docker run -p 8000:8000 --env-file .env --add-host host.docker.internal:host-gateway npsb-backend
+
+The same `.env` works on the computer and in the container: inside a container, `HOST=127.0.0.1` becomes
+`0.0.0.0` and `DB_HOST=localhost` becomes `host.docker.internal` (a container's "localhost" is the container
+itself). `DB_USER` / `DB_PASSWORD` must be valid for that MySQL. If MySQL is still starting, the backend
+retries the connection (`DB_CONNECT_ATTEMPTS`, default 10, 3 s apart), and a failed connection is reported
+as one clear line with the likely fix instead of a stack trace.
 
 Multi-stage build (Maven on Temurin 21, then a Temurin 21 JRE runtime) that follows the Container Image
 Build Security Standard (NGD-CTR-001): non-root user (uid 10001), no secrets in the image, `.dockerignore`

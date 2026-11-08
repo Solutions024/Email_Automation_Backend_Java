@@ -92,10 +92,45 @@ public final class Database {
     /** Create the MySQL database (schema) if it does not exist yet, so nobody has to create it in Workbench. */
     public static void createDatabaseIfMissing() throws SQLException {
         if (!Config.DATABASE_URL.isEmpty()) return;
-        try (Connection c = DriverManager.getConnection(mysqlUrl(Config.DB_HOST, Config.DB_PORT, null),
-                Config.DB_USER, Config.DB_PASSWORD); Statement st = c.createStatement()) {
-            st.execute("CREATE DATABASE IF NOT EXISTS `" + Config.DB_NAME + "` CHARACTER SET utf8mb4");
+        // MySQL may still be starting (docker compose, a service after a reboot): retry "connection refused" a while
+        int attempts = Math.max(1, Config.DB_CONNECT_ATTEMPTS);
+        for (int attempt = 1; ; attempt++) {
+            try (Connection c = DriverManager.getConnection(mysqlUrl(Config.DB_HOST, Config.DB_PORT, null),
+                    Config.DB_USER, Config.DB_PASSWORD); Statement st = c.createStatement()) {
+                st.execute("CREATE DATABASE IF NOT EXISTS `" + Config.DB_NAME + "` CHARACTER SET utf8mb4");
+                return;
+            } catch (SQLException e) {
+                boolean unreachable = "08S01".equals(e.getSQLState()) || "08001".equals(e.getSQLState());
+                if (unreachable && attempt < attempts) {
+                    LOG.warning("MySQL at " + Config.DB_HOST + ":" + Config.DB_PORT + " not reachable (attempt "
+                            + attempt + "/" + attempts + "), retrying in 3 s");
+                    try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+                    continue;
+                }
+                throw new SQLException(explain(e, unreachable), e.getSQLState(), e.getErrorCode(), e);
+            }
         }
+    }
+
+    /** A readable reason for a failed first connection, with the usual fix. */
+    private static String explain(SQLException e, boolean unreachable) {
+        String where = Config.DB_USER + "@" + Config.DB_HOST + ":" + Config.DB_PORT;
+        if (unreachable) {
+            String hint = "Check that MySQL is running and DB_HOST / DB_PORT are right.";
+            boolean local = Config.DB_HOST.equals("localhost") || Config.DB_HOST.startsWith("127.");
+            if (local && java.nio.file.Files.exists(java.nio.file.Path.of("/.dockerenv"))) {
+                hint = "This backend runs in a Docker container, where DB_HOST=" + Config.DB_HOST + " is the container "
+                        + "itself, not your computer. Use DB_HOST=host.docker.internal for a MySQL on the host "
+                        + "(docker run --add-host host.docker.internal:host-gateway), or the MySQL service name in "
+                        + "docker compose.";
+            }
+            return "Cannot reach MySQL (" + where + "): " + e.getMessage() + ". " + hint;
+        }
+        if (e.getErrorCode() == 1045) {
+            return "MySQL refused the sign-in (" + where + "): DB_USER / DB_PASSWORD in .env are wrong, or that user "
+                    + "may not connect from this host. " + e.getMessage();
+        }
+        return "MySQL error (" + where + "): " + e.getMessage();
     }
 
     // ---------------------------------------------------------------- tables

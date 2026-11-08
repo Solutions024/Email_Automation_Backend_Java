@@ -184,11 +184,24 @@ public final class Config {
     // ---------------------------------------------------------------- fixed settings (need a restart)
 
     // MySQL (the same details you use to connect in MySQL Workbench)
-    public static final String DB_HOST = env("DB_HOST", "localhost");
+    // In a Docker container "localhost" is the container itself: a MySQL on the computer is host.docker.internal.
+    // So the same .env works both directly on the computer and with `docker run --env-file .env`.
+    public static final String DB_HOST = containerHost(env("DB_HOST", "localhost"));
+
+    static boolean inContainer() {
+        return java.nio.file.Files.exists(java.nio.file.Path.of("/.dockerenv"));
+    }
+
+    private static String containerHost(String host) {
+        boolean loopback = host.equals("localhost") || host.startsWith("127.") || host.equals("::1");
+        return loopback && inContainer() ? "host.docker.internal" : host;
+    }
     public static final int DB_PORT = envInt("DB_PORT", "3306");
     public static final String DB_USER = env("DB_USER", "root");
     public static final String DB_PASSWORD = env("DB_PASSWORD", "");
     public static final String DB_NAME = env("DB_NAME", "npsb_dispute");
+    // Start-up tries this many times (3 s apart) while MySQL cannot be reached yet (e.g. still starting)
+    public static final int DB_CONNECT_ATTEMPTS = envInt("DB_CONNECT_ATTEMPTS", "10");
     // Optional: a JDBC URL to use a different database (e.g. jdbc:h2:./test-db;MODE=MySQL)
     public static final String DATABASE_URL = env("DATABASE_URL", "");
 

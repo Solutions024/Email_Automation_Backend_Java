@@ -3,7 +3,7 @@
 # Follows NGD-CTR-001 (Container Image Build Security Standard); control IDs are noted as CIB-xx.
 #
 #   docker build -t npsb-backend .
-#   docker run -p 8000:8000 --env-file .env npsb-backend
+#   cd ..  &&  docker compose up --build backend     (MySQL + backend, see ../docker-compose.yml)
 #
 # All settings (database, mail, JWT_SECRET, ...) come from environment variables at run time, never from the
 # image (CIB-06). See .env.example for the full list.
@@ -41,8 +41,7 @@ ENV HOME=/home/appuser \
     TZ=Asia/Dhaka \
     HOST=0.0.0.0 \
     PORT=8000 \
-    APP_LOG_DIR=/app/logs \
-    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
+    APP_LOG_DIR=/app/logs
 
 # CIB-05: dedicated non-root user and group (fixed IDs for runAsUser / volume permissions)
 # CIB-14: only the log folder is writable by the app; the jar stays root-owned and read-only
@@ -71,4 +70,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -fsS --max-time 8 "http://127.0.0.1:${PORT}/livez" || exit 1
 
 # CIB-17: exec form, so the JVM is PID 1 and receives SIGTERM directly
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+# JVM flags go here, not in JAVA_TOOL_OPTIONS (that makes the JVM print "Picked up JAVA_TOOL_OPTIONS" at start)
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/app.jar"]

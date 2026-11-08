@@ -47,6 +47,13 @@
       <version>2.2.224</version>
       <scope>runtime</scope>
     </dependency>
+    <!-- Pin slf4j-api to 2.x: a 1.7 API pulled in by another library ignores slf4j-nop and prints
+         "Failed to load class org.slf4j.impl.StaticLoggerBinder" at start-up -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>2.0.13</version>
+    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-nop</artifactId>

@@ -1,0 +1,53 @@
+# NPSB Dispute Email Automation backend + its own MySQL, in Docker.
+#
+#   docker compose up --build         logs in the terminal (Ctrl+C stops)
+#   docker compose up -d --build      in the background; then: docker compose logs -f backend
+#   docker compose down               stop (add -v to also delete the database)
+#
+# Settings come from .env (copy .env.example). MySQL runs in its own container with the DB_USER / DB_PASSWORD
+# from .env, so it does not depend on a MySQL installed on this computer. Its data is kept in the "mysql-data"
+# volume. From MySQL Workbench on this computer: host 127.0.0.1, port 3307.
+name: npsb-backend
+
+services:
+  mysql:
+    image: mysql:8.0.40
+    env_file: .env
+    # The root password is the DB_PASSWORD from .env (one place for the password)
+    entrypoint: ["sh", "-c", "export MYSQL_ROOT_PASSWORD=\"$$DB_PASSWORD\"; exec docker-entrypoint.sh mysqld"]
+    environment:
+      TZ: Asia/Dhaka
+    ports:
+      - "3307:3306"                          # 3306 is often taken by a MySQL installed on the computer
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # TCP ping: only answers once the first-start initialisation is finished
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  backend:
+    build: .
+    image: npsb-backend
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0                          # listen on every interface of the container
+      DB_HOST: mysql                         # the MySQL container above
+      DB_PORT: "3306"
+      APP_LOG_DIR: /app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8000:8000"                          # API docs: http://localhost:8000/docs
+    volumes:
+      - backend-logs:/app/logs
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  backend-logs:
