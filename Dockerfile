@@ -2,8 +2,11 @@
 # NPSB Dispute Email Automation - backend image.
 # Follows NGD-CTR-001 (Container Image Build Security Standard); control IDs are noted as CIB-xx.
 #
+#   docker compose up --build      (recommended: backend + its own MySQL, see docker-compose.yml and README.md)
+#
+#   or only this image, with the MySQL installed on the computer:
 #   docker build -t npsb-backend .
-#   cd ..  &&  docker compose up --build backend     (MySQL + backend, see ../docker-compose.yml)
+#   docker run --rm -p 8000:8000 --env-file .env --add-host host.docker.internal:host-gateway npsb-backend
 #
 # All settings (database, mail, JWT_SECRET, ...) come from environment variables at run time, never from the
 # image (CIB-06). See .env.example for the full list.

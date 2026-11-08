@@ -30,32 +30,72 @@ API docs: http://localhost:8000/docs (Swagger UI) and /openapi.json.
 
 ## Docker
 
-Recommended: the backend together with its own MySQL (`docker-compose.yml`). Copy `.env.example` to `.env`
-first; the MySQL container's root password is the `DB_PASSWORD` from `.env`.
+Needs Docker Desktop (running). No JDK, Maven or MySQL install is needed: Docker builds the jar and runs
+its own MySQL.
 
-    docker compose up --build          # logs in the terminal, Ctrl+C stops
-    docker compose up -d --build       # in the background; docker compose logs -f backend
-    docker compose down                # stop (add -v to also delete the database)
+### Quick start (backend + its own MySQL) — recommended
 
-A clean start looks like this:
+Run these in PowerShell (or any terminal) **in this folder** (the one with `docker-compose.yml`):
+
+```powershell
+# 1. Settings: once. Then edit .env: set DB_PASSWORD (any non-empty value, it becomes the MySQL
+#    root password), JWT_SECRET and the mail settings.
+copy .env.example .env
+
+# 2. Build and start (first run takes a few minutes; logs stay in the terminal, Ctrl+C stops)
+docker compose up --build
+```
+
+A clean start ends like this:
 
     INFO: Application log: /app/logs
     INFO: NPSB Dispute Email Automation started
     INFO: Listening on http://0.0.0.0:8000
 
-The database lives in the `mysql-data` volume. From MySQL Workbench on the computer: host `127.0.0.1`,
-port `3307` (3306 is left free for a MySQL installed on the computer).
+Then open http://localhost:8000/docs (API docs). Health check: http://localhost:8000/livez.
+Sign in with the built-in admin (`admin` / `Admin@1234`) and change its password.
 
-Only the image, against a MySQL that runs on the computer itself:
+Everyday commands (same folder):
 
-    docker build -t npsb-backend .
-    docker run -p 8000:8000 --env-file .env --add-host host.docker.internal:host-gateway npsb-backend
+| What                                   | Command                                   |
+|----------------------------------------|-------------------------------------------|
+| Start in the background                | `docker compose up -d --build`            |
+| Follow the backend log                 | `docker compose logs -f backend`          |
+| Show status (both should be `healthy`) | `docker compose ps`                       |
+| Restart after a code or `.env` change  | `docker compose up -d --build`            |
+| Stop                                   | `docker compose down`                     |
+| Stop **and delete the database**       | `docker compose down -v`                  |
 
-The same `.env` works on the computer and in the container: inside a container, `HOST=127.0.0.1` becomes
-`0.0.0.0` and `DB_HOST=localhost` becomes `host.docker.internal` (a container's "localhost" is the container
-itself). `DB_USER` / `DB_PASSWORD` must be valid for that MySQL. If MySQL is still starting, the backend
-retries the connection (`DB_CONNECT_ATTEMPTS`, default 10, 3 s apart), and a failed connection is reported
-as one clear line with the likely fix instead of a stack trace.
+Notes:
+- The MySQL container's root password is the `DB_PASSWORD` from `.env`. It is set when the database is
+  first created; to change it later, change it in MySQL as well (or start fresh with `docker compose down -v`).
+- The database is kept in the `mysql-data` volume, so it survives restarts.
+- MySQL Workbench from the computer: host `127.0.0.1`, port `3307`, user `root`, the `DB_PASSWORD` from
+  `.env`. (Port 3306 is left free for a MySQL installed on the computer.)
+- Ports used: `8000` (backend) and `3307` (MySQL). Stop anything else on them first.
+
+### Alternative: only the backend image, with the MySQL installed on the computer
+
+```powershell
+docker build -t npsb-backend .
+docker run --rm -p 8000:8000 --env-file .env --add-host host.docker.internal:host-gateway npsb-backend
+```
+
+Here `DB_USER` / `DB_PASSWORD` in `.env` must be the real login of the computer's MySQL (the one that works
+in MySQL Workbench). The same `.env` works both directly on the computer and in the container: inside a
+container, `HOST=127.0.0.1` becomes `0.0.0.0` and `DB_HOST=localhost` becomes `host.docker.internal`
+(a container's "localhost" is the container itself).
+
+### Troubleshooting
+
+| Message at start                                   | Fix                                                        |
+|----------------------------------------------------|------------------------------------------------------------|
+| `MySQL refused the sign-in ... Access denied`      | `DB_USER` / `DB_PASSWORD` in `.env` are wrong for that MySQL. With compose and an old volume: `docker compose down -v`, then start again. |
+| `Cannot reach MySQL ...`                           | MySQL is not running, or `DB_HOST` / `DB_PORT` are wrong. The backend retries first (`DB_CONNECT_ATTEMPTS`, default 10, 3 s apart). |
+| `Port 8000 ... is already in use` / `port is already allocated` | Another backend or container uses the port: `docker ps`, then stop it. |
+| `request returned 500 Internal Server Error ... dockerDesktopLinuxEngine` | Docker Desktop is not (fully) started. Start it and wait until it says *Engine running*. |
+
+### About the image
 
 Multi-stage build (Maven on Temurin 21, then a Temurin 21 JRE runtime) that follows the Container Image
 Build Security Standard (NGD-CTR-001): non-root user (uid 10001), no secrets in the image, `.dockerignore`
