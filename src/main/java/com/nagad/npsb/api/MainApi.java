@@ -959,9 +959,18 @@ public final class MainApi {
         rows.sort(Comparator.comparing(t -> t.excelRow));
         Map<Integer, List<EmailDispatch>> emailsByUpload = new HashMap<>();
         Map<Integer, Upload> uploads = new HashMap<>();
+        // the first copies of the repeated rows, read in batches (not one query per row)
+        Map<Integer, Transaction> firsts = new HashMap<>();
+        List<Integer> firstIds = new ArrayList<>();
+        for (Transaction t : rows) if (t.duplicateOfTxn != null) firstIds.add(t.duplicateOfTxn);
+        firstIds = new ArrayList<>(new LinkedHashSet<>(firstIds));
+        for (int i = 0; i < firstIds.size(); i += 500) {
+            List<Integer> chunk = firstIds.subList(i, Math.min(i + 500, firstIds.size()));
+            for (Transaction f : db.all(Transaction.class, "WHERE t.id IN " + Db.in(chunk), chunk.toArray())) firsts.put(f.id, f);
+        }
         List<Object> out = new ArrayList<>();
         for (Transaction t : rows) {
-            Transaction first = t.duplicateOfTxn != null ? db.get(Transaction.class, t.duplicateOfTxn) : null;
+            Transaction first = t.duplicateOfTxn != null ? firsts.get(t.duplicateOfTxn) : null;
             EmailDispatch d = first != null ? emailOf(db, first, emailsByUpload)
                     : t.duplicateOf != null ? db.get(EmailDispatch.class, t.duplicateOf) : null;
             Upload from = first != null ? uploads.computeIfAbsent(first.uploadId, id -> db.get(Upload.class, id))

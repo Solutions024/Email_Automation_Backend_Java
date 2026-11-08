@@ -78,13 +78,14 @@ public final class Server {
         connector.setPort(port);
         connector.setProperty("address", host);
         connector.setURIEncoding("UTF-8");
-        connector.setMaxPostSize(-1);
+        connector.setMaxPostSize((int) Req.MAX_BODY_BYTES);  // form posts; JSON bodies are capped in Req.raw()
         connector.setThrowOnFailure(true);  // a port in use stops the start instead of only being logged
         tomcat.setConnector(connector);
         Context ctx = tomcat.addContext("", null);
         ctx.setAllowCasualMultipartParsing(true);
         Wrapper wrapper = Tomcat.addServlet(ctx, "api", new Dispatch());
-        wrapper.setMultipartConfigElement(new MultipartConfigElement(null, -1L, -1L, 1024 * 1024));
+        // uploads: at most MAX_FILE_BYTES per file and MAX_BODY_BYTES per request (they are read into memory)
+        wrapper.setMultipartConfigElement(new MultipartConfigElement(null, Req.MAX_FILE_BYTES, Req.MAX_BODY_BYTES, 1024 * 1024));
         ctx.addServletMappingDecoded("/", "api");
         tomcat.start();
         LOG.info("Listening on http://" + host + ":" + port);

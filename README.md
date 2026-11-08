@@ -16,7 +16,9 @@ This makes one runnable jar: `target/npsb-backend.jar`.
 ## Run
 
 1. Copy `.env.example` to `.env` (next to where you start the jar) and fill in the database,
-   mail server, `JWT_SECRET` and `ADMIN_SIGNUP_CODE`.
+   mail server and `JWT_SECRET`. There is no self sign-up: the built-in admin (username `admin`,
+   password `Admin@1234`) is created on first start and creates every other account. Change its
+   password on My Profile straight away.
 2. Start MySQL. The database and all tables are created automatically on first start; older
    databases get missing columns added, exactly like the Python version did.
 3. Start the API:
@@ -25,6 +27,17 @@ This makes one runnable jar: `target/npsb-backend.jar`.
        java -jar target/npsb-backend.jar --port 8000 --host 0.0.0.0
 
 API docs: http://localhost:8000/docs (Swagger UI) and /openapi.json.
+
+## Tests
+
+    mvn test
+
+JUnit 5 tests in `src/test/java`: unit tests (upload parsing, the application log) and API tests that
+start the real backend (routes, sign-in, SQL) on a free port against an **in-memory H2 database**.
+They never touch MySQL or send mail: `pom.xml` (surefire) gives them their own settings and
+`NPSB_ENV_FILE=none`, so your `.env` is not read. Covered: health probes, sign-in, no self sign-up,
+built-in admin only managing accounts, setting a password, forgot-password code, the RRN check
+across uploads, upload type and size limits, approvals and partner changes.
 
 ## Tools (same as the Python scripts)
 

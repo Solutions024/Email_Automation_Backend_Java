@@ -118,8 +118,14 @@ public final class Req {
 
     public byte[] raw() {
         if (raw == null) {
+            if (http.getContentLengthLong() > MAX_BODY_BYTES) {
+                throw new ApiError(413, "The request is too large. The limit is " + MAX_BODY_BYTES / (1024 * 1024) + " MB.");
+            }
             try (InputStream in = http.getInputStream()) {
-                raw = in.readAllBytes();
+                raw = in.readNBytes((int) MAX_BODY_BYTES + 1);  // no Content-Length (chunked): still capped
+                if (raw.length > MAX_BODY_BYTES) {
+                    throw new ApiError(413, "The request is too large. The limit is " + MAX_BODY_BYTES / (1024 * 1024) + " MB.");
+                }
             } catch (IOException e) {
                 raw = new byte[0];
             }
@@ -146,10 +152,15 @@ public final class Req {
     }
 
     /** An uploaded file of a multipart form (File(...)): 422 when it is missing. */
+    /** Largest uploaded file, and largest request body (both are read into memory). */
+    public static final long MAX_FILE_BYTES = 25L * 1024 * 1024, MAX_BODY_BYTES = 30L * 1024 * 1024;
+
     public Part file(String name) {
         try {
             Part part = http.getPart(name);
             if (part != null && part.getSubmittedFileName() != null) return part;
+        } catch (IllegalStateException e) {  // Tomcat: the file or the request is over the limit
+            throw new ApiError(413, "The file is too large. The limit is " + MAX_FILE_BYTES / (1024 * 1024) + " MB.");
         } catch (Exception ignored) {
             // not a multipart request
         }

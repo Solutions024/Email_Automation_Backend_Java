@@ -65,8 +65,19 @@ public final class Config {
         }
     }
 
-    /** backend/.env: looked for from the working folder upwards, then from the jar's folder upwards. */
+    /**
+     * backend/.env: looked for from the working folder upwards, then from the jar's folder upwards.
+     * NPSB_ENV_FILE (environment) picks another file, or "none" to read no file at all (the tests do that).
+     */
     private static Path findDotEnv() {
+        String chosen = System.getenv("NPSB_ENV_FILE");
+        if (chosen != null && !chosen.isBlank()) {
+            if (chosen.strip().equalsIgnoreCase("none")) return null;
+            Path file = Paths.get(chosen.strip());
+            if (Files.isRegularFile(file)) return file;
+            System.err.println("WARNING: NPSB_ENV_FILE " + file + " does not exist; no .env file is read");
+            return null;
+        }
         List<Path> starts = new ArrayList<>();
         starts.add(Paths.get("").toAbsolutePath());
         try {

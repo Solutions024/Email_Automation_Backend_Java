@@ -70,11 +70,39 @@
       <artifactId>jsoup</artifactId>
       <version>1.18.1</version>
     </dependency>
+    <!-- tests: JUnit 5, run against an in-memory H2 database (never MySQL) -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.11.4</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
     <finalName>npsb-backend</finalName>
     <plugins>
+      <!-- mvn test: the API tests start the backend on an in-memory H2 database -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.3</version>
+        <configuration>
+          <environmentVariables>
+            <NPSB_ENV_FILE>none</NPSB_ENV_FILE>
+            <DATABASE_URL>jdbc:h2:mem:npsbtest;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1</DATABASE_URL>
+            <MAIL_PROVIDER>smtp</MAIL_PROVIDER>
+            <SMTP_HOST>127.0.0.1</SMTP_HOST>
+            <SMTP_PORT>9</SMTP_PORT>
+            <SMTP_MAX_ATTEMPTS>1</SMTP_MAX_ATTEMPTS>
+            <SMTP_RETRY_SECONDS>0</SMTP_RETRY_SECONDS>
+            <INBOX_ENABLED>false</INBOX_ENABLED>
+            <EMAIL_DNS_CHECK>false</EMAIL_DNS_CHECK>
+            <JWT_SECRET>test-only-secret-not-used-anywhere-else</JWT_SECRET>
+            <APP_LOG_DIR>${project.build.directory}/test-logs</APP_LOG_DIR>
+          </environmentVariables>
+        </configuration>
+      </plugin>
       <!-- one runnable jar with all dependencies: target/npsb-backend.jar -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
