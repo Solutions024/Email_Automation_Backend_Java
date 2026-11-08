@@ -13,7 +13,7 @@ import com.nagad.npsb.web.Server;
 import java.util.ArrayList;
 import java.util.List;
 
-/** User management and the security audit log. Admins only. */
+/** User management and the security audit log. The built-in admin only (other admins can't manage accounts). */
 public final class Users {
     private Users() {}
 
@@ -30,7 +30,7 @@ public final class Users {
     }
 
     static Object listUsers(Req req) {
-        Auth.requireAdmin(req);
+        Auth.requireBuiltInAdmin(req);
         List<Object> out = new ArrayList<>();
         for (User u : req.db().all(User.class, "ORDER BY t.username")) out.add(Auth.userToDict(u));
         return out;
@@ -38,7 +38,7 @@ public final class Users {
 
     /** Create an account for someone. They sign in with their password plus a code emailed to them. */
     static Object createUser(Req req) {
-        User me = Auth.requireAdmin(req);
+        User me = Auth.requireBuiltInAdmin(req);
         Body b = Body.of(req);
         String fullName = b.check("full_name", b.str("full_name"), Auth::cleanFullName);
         String username = b.check("username", b.str("username"), Auth::cleanUsername);
@@ -68,12 +68,13 @@ public final class Users {
     }
 
     static Object updateUser(Req req) {
-        User me = Auth.requireAdmin(req);
+        User me = Auth.requireBuiltInAdmin(req);
         int userId = req.pathInt("user_id");
         Body b = Body.of(req);
         boolean unlock = b.bool("unlock", false);
         String role = b.optLiteral("role", "admin", "user");
         Boolean isActive = b.optBool("is_active");
+        String newPassword = b.str("password", null);  // an admin sets a new password for someone else
         b.done();
         Db db = req.db();
         User user = db.get(User.class, userId);
@@ -84,6 +85,23 @@ public final class Users {
             user.lockedUntil = null;
             user.failedLoginCount = 0;
             changes.add("unlocked");
+        }
+
+        if (newPassword != null) {
+            if (user.id.equals(me.id)) throw new ApiError(400, "Change your own password on My Profile.");
+            Auth.checkPasswordStrength(newPassword, user.username, user.email);
+            user.passwordHash = Auth.hashPassword(newPassword);
+            user.passwordChangedAt = Py.utcnow();
+            user.failedLoginCount = 0;
+            user.lockedUntil = null;
+            user.tokenVersion += 1;  // signed out everywhere: the old password no longer works
+            Auth.revokeAllSessions(db, user, null);
+            Auth.revokeTrustedDevices(db, user);
+            changes.add("password set by an admin");
+        }
+
+        if (Auth.isBuiltInAdmin(user) && ((role != null && !role.equals(user.role)) || Boolean.FALSE.equals(isActive))) {
+            throw new ApiError(400, "The built-in admin can't be made a user or deactivated.");
         }
 
         if (role != null && !role.equals(user.role)) {
@@ -115,7 +133,7 @@ public final class Users {
     }
 
     static Object auditLog(Req req) {
-        Auth.requireAdmin(req);
+        Auth.requireBuiltInAdmin(req);
         int limit = Math.max(1, Math.min(req.queryInt("limit", 100), 500));
         List<Object> out = new ArrayList<>();
         for (AuthEvent e : req.db().all(AuthEvent.class, "ORDER BY t.created_at DESC, t.id DESC LIMIT " + limit)) {

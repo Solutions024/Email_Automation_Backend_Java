@@ -34,10 +34,6 @@ public class EmailReply extends Entity {
     public String reviewReason;
     public String handledBy;
     public LocalDateTime handledAt;
-    public String forwardStatus;
-    public String forwardTo;
-    public String forwardNote;
-    public LocalDateTime forwardedAt;
     public String inReplyTo;
 
     public EmailDispatch dispatch() {
@@ -47,5 +43,11 @@ public class EmailReply extends Entity {
     /** The attached files (without their contents: EmailReplyAttachment.content()). */
     public List<EmailReplyAttachment> attachments() {
         return many("attachments", EmailReplyAttachment.class, "WHERE t.reply_id = ? ORDER BY t.id", id);
+    }
+
+    @Override
+    protected void afterCommit(boolean inserted) {
+        if (inserted) com.nagad.npsb.AppLog.event("REPLY", com.nagad.npsb.AppLog.kv("reply", id, "kind", kind,
+                "from", fromEmail, "email", dispatchId, "partner", partnerId, "matched_by", matchedBy, "subject", subject));
     }
 }

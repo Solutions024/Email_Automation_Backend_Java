@@ -34,6 +34,9 @@ public final class Db implements AutoCloseable {
     /** Rows inserted / updated in the current transaction (re-read after a rollback). */
     private final Set<Entity> touched = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
     private final Set<Entity> insertedNow = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+    /** Rows inserted / updated in this transaction, in order: told after the commit (Entity.afterCommit). */
+    private final List<Entity> writtenNow = new ArrayList<>();
+    private final List<Boolean> writtenInserted = new ArrayList<>();
 
     public static Db open() {
         return new Db();
@@ -292,6 +295,8 @@ public final class Db implements AutoCloseable {
         identity.computeIfAbsent(meta.type, x -> new HashMap<>()).put(meta.key(e), e);
         touched.add(e);
         insertedNow.add(e);
+        writtenNow.add(e);
+        writtenInserted.add(true);
     }
 
     private void update(Entity e) {
@@ -319,6 +324,8 @@ public final class Db implements AutoCloseable {
         for (int i = 0; i < values.length; i++) if (meta.deferred[i]) values[i] = e.snapshot[i];
         e.snapshot = values;
         touched.add(e);
+        writtenNow.add(e);
+        writtenInserted.add(false);
     }
 
     private static List<Integer> changedColumns(Entity.Meta meta, Entity e) {
@@ -353,6 +360,17 @@ public final class Db implements AutoCloseable {
         release();
         touched.clear();
         insertedNow.clear();
+        List<Entity> written = new ArrayList<>(writtenNow);
+        List<Boolean> inserted = new ArrayList<>(writtenInserted);
+        writtenNow.clear();
+        writtenInserted.clear();
+        for (int i = 0; i < written.size(); i++) {
+            try {
+                written.get(i).afterCommit(inserted.get(i));
+            } catch (RuntimeException ignored) {
+                // the application log must never break a commit
+            }
+        }
         for (Map<List<Object>, Entity> byKey : identity.values()) {
             for (Entity e : byKey.values()) {
                 e.expired = true;
@@ -382,6 +400,8 @@ public final class Db implements AutoCloseable {
         }
         touched.clear();
         insertedNow.clear();
+        writtenNow.clear();
+        writtenInserted.clear();
         for (Entity e : reload) refreshOrForget(e, false);
         try {
             if (conn != null) conn.rollback();  // the reads above started a new transaction

@@ -26,6 +26,15 @@ This makes one runnable jar: `target/npsb-backend.jar`.
 
 API docs: http://localhost:8000/docs (Swagger UI) and /openapi.json.
 
+## Tools (same as the Python scripts)
+
+    # local test mail server on localhost:1025, saves every email to sent_emails/*.html
+    java -jar target/npsb-backend.jar test-mail-server
+
+    # when mail is broken and nobody can get a sign-in code:
+    java -jar target/npsb-backend.jar recover mail             # show / fix the mail settings
+    java -jar target/npsb-backend.jar recover code USERNAME    # one-time sign-in code made on the server
+
 ## What maps to what
 
 | Python (app/)        | Java (src/main/java/com/nagad/npsb/)        |
@@ -38,8 +47,9 @@ API docs: http://localhost:8000/docs (Swagger UI) and /openapi.json.
 | settings.py, server_settings.py | service/Settings.java, service/ServerSettings.java |
 | email_service.py | service/EmailService.java |
 | excel_parser.py      | service/ExcelParser.java (+ DateParse, Xlsx) |
-| inbox.py, forwarding.py | service/Inbox.java, service/Forwarding.java |
+| inbox.py | service/Inbox.java |
 | approvals.py, alerts.py, delivery.py, email_check.py, seed.py | service/* (same names) |
+| recover.py, test_mail_server.py | Recover.java, TestMailServer.java |
 
-Background jobs (automatic follow-ups, mailbox check, forwarding replies) run as threads inside the
+Background jobs (automatic follow-ups, mailbox check) run as threads inside the
 server, as before.

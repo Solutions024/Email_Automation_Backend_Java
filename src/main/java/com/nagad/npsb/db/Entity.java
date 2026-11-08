@@ -29,6 +29,9 @@ public abstract class Entity {
     /** Called before an UPDATE is written (SQLAlchemy onupdate). */
     protected void beforeUpdate() {}
 
+    /** Called once the row's INSERT (inserted) or UPDATE was committed: used for the application log (AppLog). */
+    protected void afterCommit(boolean inserted) {}
+
     public final Db session() { return db; }
 
     /** True once the row is in the database. */

@@ -50,22 +50,22 @@ public final class ServerSettings {
         }
     }
 
-    /** (id, title, description, shown only for this MAIL_PROVIDER or null) */
-    public static final String[][] GROUPS = {
-        {"provider", "Email system", "How emails are sent and partners' replies are read.", null},
-        {"gmail", "Gmail account",
-            "Emails, follow-ups and sign-in codes are sent from this Gmail (or Google Workspace) account through smtp.gmail.com, "
-            + "and partners' replies are read from it through imap.gmail.com. The account needs 2-Step Verification and an "
-            + "app password (Google Account > Security > App passwords); IMAP must be on in Gmail's settings.", "gmail"},
-        {"smtp", "Mail server (sending)", "Every email, follow-up and sign-in code is sent through this server.", "smtp"},
-        {"inbox", "Mailbox (IMAP)",
-            "The mailbox partners' replies and other mail are read from. Empty fields use the sending mailbox.", "smtp"},
-        {"sending", "Sending retries", "What happens when the mail server can't be reached.", null},
-        {"reading", "Reading partner mail", "", null},
-        {"jobs", "Background jobs", "", null},
+    /**
+     * What the System Settings page shows: (id, title, description, shown only for this MAIL_PROVIDER or null,
+     * field names). Everything else (email system, reading partner mail, ports, retries, background jobs, sign-up
+     * and security) keeps its .env value.
+     */
+    public static final String[][] PAGE = {
+        {"gmail", "Email account",
+            "Emails are sent from this Gmail account and partners' replies are read from it. Use an app password "
+            + "(Google Account > Security > App passwords), not the normal password.", "gmail",
+            "GMAIL_ADDRESS,GMAIL_APP_PASSWORD,GMAIL_FROM"},
+        {"smtp", "Email account",
+            "Emails are sent through this mail server and partners' replies are read from the same mailbox.", "smtp",
+            "SMTP_HOST,SMTP_USER,SMTP_PASSWORD,MAIL_FROM"},
         {"approvals", "Approvals (maker-checker)",
-            "Changes to partners, email templates and template variables wait until an admin who didn't make them approves.", null},
-        {"security", "Sign-up and security", "", null},
+            "Users' changes to email templates and template variables wait until an admin approves them. Admins' own changes and partner changes apply at once.", null,
+            "MAKER_CHECKER"},
     };
     private static final String[][] PROVIDERS = {
         {"gmail", "Gmail / Google Workspace"}, {"smtp", "Other mail server (SMTP and IMAP)"}};
@@ -73,18 +73,22 @@ public final class ServerSettings {
     public static final List<Field> FIELDS = List.of(
         new Field("MAIL_PROVIDER", "Email system", "choice", "provider",
             "Gmail. Changing it applies at once to sending and to reading replies.", null, null, false, PROVIDERS),
-        new Field("GMAIL_ADDRESS", "Gmail address", "email", "gmail",
-            "The account emails are sent from and partners' replies are read from, e.g. npsb.dispute@gmail.com"),
+        new Field("GMAIL_ADDRESS", "Gmail account (signs in)", "email", "gmail",
+            "The account that signs in to send emails and read partners' replies, e.g. npsb.dispute@gmail.com"),
         new Field("GMAIL_APP_PASSWORD", "App password", "secret", "gmail",
             "The 16-character app password Google shows once (spaces don't matter), not the account's normal password"),
+        new Field("GMAIL_FROM", "Sender address", "email", "gmail",
+            "Shown as From; partners reply to it. Empty: the Gmail account. Another address must be added in Gmail under "
+            + "Settings > Accounts > Send mail as, and its replies must reach this Gmail inbox"),
         new Field("GMAIL_FOLDER", "Folder (label)", "text", "gmail", "Where partners' replies arrive. Usually INBOX", null, null, true, new String[0][]),
         new Field("SMTP_HOST", "Server", "host", "smtp", "e.g. mail.your-company.com", null, null, true, new String[0][]),
         new Field("SMTP_PORT", "Port", "int", "smtp", "587 with STARTTLS", 1, 65535),
         new Field("SMTP_USE_TLS", "Use STARTTLS encryption", "bool", "smtp", "On for most real servers"),
-        new Field("SMTP_USER", "User", "user", "smtp", "The mailbox that signs in. Empty: no sign-in (test mail server)"),
+        new Field("SMTP_USER", "Sign-in account", "user", "smtp", "The mailbox that signs in to the server. Empty: no sign-in (test mail server)"),
         new Field("SMTP_PASSWORD", "Password", "secret", "smtp", "The mailbox's password (or app password)"),
         new Field("MAIL_FROM", "Sender address", "email", "smtp",
-            "Shown as From; partners' replies come back here. Keep it the same as the user", null, null, true, new String[0][]),
+            "Shown as From; partners reply to it. Can differ from the sign-in account if the server allows sending as it",
+            null, null, true, new String[0][]),
         new Field("SMTP_MAX_ATTEMPTS", "Attempts per email", "int", "sending", "Before the email is marked FAILED", 1, 10),
         new Field("SMTP_RETRY_SECONDS", "Wait between attempts (seconds)", "int", "sending", "", 0, 300),
         new Field("INBOX_ENABLED", "Read partner mail", "bool", "reading", "Off: the mailbox is not checked"),
@@ -354,10 +358,10 @@ public final class ServerSettings {
     public static Map<String, Object> toDict(Db db, Map<String, String> names) {
         Map<String, AppSetting> rows = rows(db);
         List<Object> out = new ArrayList<>();
-        for (String[] g : GROUPS) {
+        for (String[] g : PAGE) {
             List<Object> fields = new ArrayList<>();
-            for (Field f : FIELDS) {
-                if (!f.group().equals(g[0])) continue;
+            for (String name : g[4].split(",")) {
+                Field f = BY_NAME.get(name);
                 AppSetting row = rows.get(f.name());
                 String source = row != null && !UNREADABLE.contains(f.name()) ? "portal" : "env";
                 List<Object> options = new ArrayList<>();
@@ -379,7 +383,7 @@ public final class ServerSettings {
             }
             out.add(Py.map("id", g[0], "title", g[1], "description", g[2], "provider", g[3], "fields", fields));
         }
-        return Py.map("groups", out, "secrets_survive_restart", !Config.JWT_SECRET_IS_RANDOM);
+        return Py.map("groups", out, "mail_provider", Config.get("MAIL_PROVIDER"), "secrets_survive_restart", !Config.JWT_SECRET_IS_RANDOM);
     }
 
     static boolean truthy(Object v) {

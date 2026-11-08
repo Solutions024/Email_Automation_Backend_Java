@@ -836,7 +836,6 @@ public final class Inbox {
             STATUS.put("last_ok_at", STATUS.get("last_run_at"));
             STATUS.put("last_error", null);
             STATUS.put("last_found", result.get("found"));
-            Forwarding.kick();  // replies found now (or waiting since a restart) go to whoever prepared the email
             if ((Integer) result.get("found") > 0) {
                 LOG.info("Inbox: " + result.get("found") + " new partner messages (" + result.get("replies") + " replies)");
             }
@@ -1028,9 +1027,6 @@ public final class Inbox {
             db.add(issue);
         }
         db.commit();
-        Alerts.alert("inbox-issue", "A message in the mailbox can't be read",
-                List.of("From " + (sender.isEmpty() ? "unknown" : sender) + ": \"" + subject + "\".", "Error: " + error,
-                        "It was skipped; the other messages are still read. An admin can retry it on the Partner Replies page."));
     }
 
     /**
@@ -1076,7 +1072,6 @@ public final class Inbox {
                     done.resolvedAt = Py.now();
                     done.resolvedBy = username;
                     db.commit();
-                    Forwarding.kick();
                     return outcome;
                 } finally {
                     if (folder.isOpen()) folder.close(false);
@@ -1181,14 +1176,8 @@ public final class Inbox {
                     Delivery.recordRefused(d, address, "Bounced: the mail server could not deliver it");
                 }
             }
-            Forwarding.queue(reply);  // emailed to whoever prepared the email, after the check
         }
         db.commit();
-        if (kind.equals(BOUNCE) && d != null) {
-            Alerts.alert("bounce:" + reply.id, "An email to " + d.partner().name + " bounced",
-                    List.of("The mail server of " + d.partner().name + " could not deliver our email \"" + d.subject + "\".",
-                            "Bounce message: " + reply.subject));
-        }
         return true;
     }
 
@@ -1202,7 +1191,6 @@ public final class Inbox {
                     scan();
                 } catch (Exception e) {
                     LOG.warning("Inbox check failed: " + e.getMessage());
-                    Alerts.alert("inbox", "Partner mail can't be read", List.of("The mailbox check failed: " + e.getMessage()));
                 }
                 STATUS.put("next_run_at", Py.isoSeconds(LocalDateTime.now().plusSeconds(Config.INBOX_CHECK_SECONDS())));
             } else {

@@ -32,5 +32,11 @@ public class Transaction extends Entity {
     @Col("dest_partner_name") public String partnerName;  // KEY_ORG_NM
     @Col("dest_institution_code") public String orgCode;  // NPSB_ORG_CODE
     public String mailType;  // TXN_DIRECTION: inward / outward
-    public Integer duplicateOf;  // already reported to the partner in this email within the duplicate window: left out
+    public Integer duplicateOf;  // older uploads: already reported to the partner in this email: left out
+    public Integer duplicateOfTxn;  // the same RRN was in an earlier upload (this transaction): left out
+
+    /** Left out of the emails: the transaction was already taken in from another file. */
+    public boolean isDuplicate() {
+        return (duplicateOf != null && duplicateOf != 0) || duplicateOfTxn != null;
+    }
 }

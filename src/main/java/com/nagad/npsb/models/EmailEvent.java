@@ -30,4 +30,11 @@ public class EmailEvent extends Entity {
     public Integer replyId;
     public String createdBy;
     public LocalDateTime createdAt = Py.now();
+
+    @Override
+    protected void afterCommit(boolean inserted) {
+        if (inserted) com.nagad.npsb.AppLog.event("EMAIL", com.nagad.npsb.AppLog.kv("email", dispatchId, "event", kind,
+                "ok", ok, "status", replyStatus, "by", createdBy, "to", toEmails, "cc", ccEmails, "subject", subject,
+                "reply", replyId, "note", note, "error", error));
+    }
 }

@@ -30,12 +30,6 @@ public final class Settings {
         DEFAULTS.put("auto_followup_max", Config.AUTO_FOLLOWUP_MAX);
         // Copied on every new email
         DEFAULTS.put("cc_emails", Config.CC_EMAILS);
-        // A transaction already reported to the partner within this many days is left out of new emails (0: off)
-        DEFAULTS.put("duplicate_window_days", Config.DUPLICATE_WINDOW_DAYS);
-        // NPSB operations: told by email about failed emails, bounces and inbox problems
-        DEFAULTS.put("ops_alert_emails", Config.OPS_ALERT_EMAILS);
-        // Email each partner reply to the person who prepared the email it answers (Forwarding)
-        DEFAULTS.put("forward_replies", Config.FORWARD_REPLIES);
     }
 
     private static Map<String, Object> cache = new LinkedHashMap<>();

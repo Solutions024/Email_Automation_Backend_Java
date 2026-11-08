@@ -258,6 +258,7 @@ public final class Database {
             dest_institution_code VARCHAR(20) NOT NULL,
             mail_type VARCHAR(20) NULL,
             duplicate_of INTEGER NULL,
+            duplicate_of_txn INTEGER NULL,
             PRIMARY KEY (id),
             FOREIGN KEY (upload_id) REFERENCES uploads (id)""", ""},
         {"email_dispatches", """
@@ -333,10 +334,6 @@ public final class Database {
             review_reason VARCHAR(255) NULL,
             handled_by VARCHAR(30) NULL,
             handled_at DATETIME NULL,
-            forward_status VARCHAR(10) NULL,
-            forward_to VARCHAR(254) NULL,
-            forward_note VARCHAR(500) NULL,
-            forwarded_at DATETIME NULL,
             in_reply_to VARCHAR(255) NULL,
             PRIMARY KEY (id),
             UNIQUE (message_id),
@@ -486,14 +483,11 @@ public final class Database {
         {"email_replies", "review_reason", "VARCHAR(255) NULL"},
         {"email_replies", "handled_by", "VARCHAR(30) NULL"},
         {"email_replies", "handled_at", "DATETIME NULL"},
-        {"email_replies", "forward_status", "VARCHAR(10) NULL"},
-        {"email_replies", "forward_to", "VARCHAR(254) NULL"},
-        {"email_replies", "forward_note", "VARCHAR(500) NULL"},
-        {"email_replies", "forwarded_at", "DATETIME NULL"},
         {"email_replies", "in_reply_to", "VARCHAR(255) NULL"},
         {"inbox_state", "read_until", "VARCHAR(40) NULL"},
         {"inbox_issues", "remote_id", "VARCHAR(255) NULL"},
         {"transactions", "duplicate_of", "INT NULL"},
+        {"transactions", "duplicate_of_txn", "INT NULL"},
         {"uploads", "uploaded_by", "VARCHAR(30) NULL"},
         {"email_templates", "purpose", "VARCHAR(20) NOT NULL DEFAULT 'initial'"},
     };
@@ -510,6 +504,11 @@ public final class Database {
         {"transactions", "beneficiary_account"},
         {"uploads", "unknown_rows"},
         {"partners", "institution_code"},
+        // replies are no longer forwarded by email: everyone sees them on Partner Replies
+        {"email_replies", "forward_status"},
+        {"email_replies", "forward_to"},
+        {"email_replies", "forward_note"},
+        {"email_replies", "forwarded_at"},
     };
     /** Columns that hold longer values now: (table, column, SQL type). MySQL only. */
     private static final String[][] WIDENED_COLUMNS = {

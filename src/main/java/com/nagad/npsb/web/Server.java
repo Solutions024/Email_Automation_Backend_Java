@@ -79,6 +79,7 @@ public final class Server {
         connector.setProperty("address", host);
         connector.setURIEncoding("UTF-8");
         connector.setMaxPostSize(-1);
+        connector.setThrowOnFailure(true);  // a port in use stops the start instead of only being logged
         tomcat.setConnector(connector);
         Context ctx = tomcat.addContext("", null);
         ctx.setAllowCasualMultipartParsing(true);
@@ -201,9 +202,12 @@ public final class Server {
         }
 
         Req req = new Req(request, params);
+        long started = System.nanoTime();
+        int status = 500;
+        String problem = null;
         try {
             Object result = found.handler.handle(req);
-            int status = req.res.status != 200 ? req.res.status : found.status;
+            status = req.res.status != 200 ? req.res.status : found.status;
             for (String[] h : req.res.headers) response.addHeader(h[0], h[1]);
             for (String c : req.res.cookies) response.addHeader("Set-Cookie", c);
             if (result instanceof Res.File f) {
@@ -213,13 +217,25 @@ public final class Server {
                 writeJson(response, status, result);
             }
         } catch (ApiError e) {
+            status = e.status;
+            problem = String.valueOf(e.detail);
             for (Map.Entry<String, String> h : e.headers.entrySet()) response.setHeader(h.getKey(), h.getValue());
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("detail", e.detail);
             writeJson(response, e.status, body);
         } catch (ValidationError e) {
+            status = 422;
+            problem = String.valueOf(e.errors);
             writeJson(response, 422, Map.of("detail", e.errors));
         } finally {
+            // application log: requests that change something, and every failed one (reads that work are left out)
+            boolean probe = path.equals("/startupz") || path.equals("/livez") || path.equals("/readyz");
+            if (!probe && (!method.equals("GET") || status >= 400)) {
+                String text = com.nagad.npsb.AppLog.kv("method", method, "path", path, "status", status,
+                        "ms", (System.nanoTime() - started) / 1_000_000, "ip", req.clientIp(), "problem", problem);
+                if (status >= 500) LOG.warning("[HTTP] " + text);
+                else com.nagad.npsb.AppLog.event("HTTP", text);
+            }
             req.closeDb();
             Runnable after = req.afterResponse;
             if (after != null) {

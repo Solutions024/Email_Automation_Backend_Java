@@ -7,7 +7,6 @@ import com.nagad.npsb.models.EmailEvent;
 import com.nagad.npsb.models.EmailReply;
 import com.nagad.npsb.models.ReplyAnswer;
 import com.nagad.npsb.models.User;
-import com.nagad.npsb.service.Alerts;
 import com.nagad.npsb.service.EmailService;
 import com.nagad.npsb.web.ApiError;
 import com.nagad.npsb.web.Body;
@@ -27,11 +26,11 @@ import java.util.regex.Pattern;
 /**
  * Our answers to partners' replies, written in the app and approved by an admin before they are sent.
  *
- * Who can answer a partner's reply: the person who prepared the email it answers, anyone the reply was forwarded
- * to (Forwarding), and admins. The answer waits on Pending Mails until an admin approves it (it is then sent to the
+ * Who can answer a partner's reply: anyone (Partner Replies is shared, so a colleague can take over while the
+ * person who prepared the email is away). The answer waits on Pending Mails until an admin approves it (it is then sent to the
  * partner in the same email thread, with the partner's message quoted) or rejects it with a reason (the writer can
  * change it and send it for approval again). The partner's reply to an answer is matched to the email like any
- * other reply (Inbox knows the answers' Message-IDs), forwarded again, and can be answered again:
+ * other reply (Inbox knows the answers' Message-IDs) and can be answered again:
  * GET /api/emails/{id}/conversation returns the whole back-and-forth as a tree.
  */
 public final class Answers {
@@ -74,10 +73,7 @@ public final class Answers {
     public static String canAnswer(Db db, User user, EmailReply r) {
         if (r.dispatch() == null) return "Only replies to one of our emails can be answered. Link it to an email first.";
         if (!"reply".equals(r.kind)) return "Automatic replies and delivery failure notices can't be answered.";
-        if ("admin".equals(user.role) || user.username.equals(r.dispatch().submittedBy)) return null;
-        boolean forwarded = !Py.isEmpty(user.email) && db.scalar("SELECT id FROM email_events WHERE kind = 'forwarded' AND ok = ? "
-                + "AND reply_id = ? AND LOWER(to_emails) = ? LIMIT 1", true, r.id, user.email.toLowerCase(java.util.Locale.ROOT)) != null;
-        return forwarded ? null : "Only the person who prepared the email, people it was forwarded to, and admins can answer it.";
+        return null;  // shared dashboard: anyone can answer, e.g. while the person who prepared the email is away
     }
 
     /** Pre-filled answer: to the partner who wrote, our team in CC, "Re:" subject. */
@@ -234,9 +230,11 @@ public final class Answers {
         a.createdBy = user.username;
         db.add(a);
         db.flush();
-        history(db, a, "answer_submitted", user.username, "Answer to " + addressed(r) + " sent for approval",
+        boolean admin = "admin".equals(user.role);
+        history(db, a, "answer_submitted", user.username, "Answer to " + addressed(r) + (admin ? " written by an admin" : " sent for approval"),
                 a.toEmails, a.ccEmails, textHtml(a.bodyText), null, null, null);
         db.commit();
+        if (admin) return approveAndSend(db, a, user);  // an admin's answer needs no approval: sent now
         return toDicts(db, List.of(a), user).get(0);
     }
 
@@ -260,9 +258,12 @@ public final class Answers {
             throw new ApiError(409, "This answer can't be changed any more: it is being sent or was sent.");
         }
         db.refresh(a);
-        history(db, a, "answer_submitted", user.username, "Answer to " + addressed(a.reply()) + " changed and sent for approval again",
+        boolean admin = "admin".equals(user.role);
+        history(db, a, "answer_submitted", user.username, "Answer to " + addressed(a.reply())
+                        + (admin ? " changed by an admin" : " changed and sent for approval again"),
                 a.toEmails, a.ccEmails, textHtml(a.bodyText), null, null, null);
         db.commit();
+        if (admin) return approveAndSend(db, a, user);  // sent now, no approval
         return toDicts(db, List.of(a), user).get(0);
     }
 
@@ -309,7 +310,11 @@ public final class Answers {
         User admin = Auth.requireAdmin(req);
         int answerId = req.pathInt("answer_id");
         Db db = req.db();
-        ReplyAnswer a = getAnswerOr404(db, answerId);
+        return approveAndSend(db, getAnswerOr404(db, answerId), admin);
+    }
+
+    /** Send a waiting answer (an admin approved it, or an admin wrote it: no approval needed). */
+    static Object approveAndSend(Db db, ReplyAnswer a, User admin) {
         LocalDateTime now = Py.now();
         int claimed = db.execute("UPDATE reply_answers SET status = ?, sending_since = ?, decided_by = ?, decided_at = ? "
                         + "WHERE id = ? AND (status IN ('PENDING', 'FAILED') OR (status = 'SENDING' AND sending_since < ?))",
@@ -342,8 +347,6 @@ public final class Answers {
             history(db, a, "answer_failed", admin.username, "Answer to " + addressed(r) + " could not be sent",
                     a.toEmails, a.ccEmails, null, false, Py.cut(message, 1000), null);
             db.commit();
-            Alerts.alert("answer:" + a.id, "An answer to " + d.partner().name + " could not be sent",
-                    List.of("Subject: " + a.subject, "Error: " + message, "It is in Pending Mails; an admin can send it again."));
             throw new ApiError(502, "The answer could not be sent: " + message);
         }
         a.status = SENT;
@@ -354,7 +357,8 @@ public final class Answers {
         a.messageId = result.messageId();  // the partner's reply to it is matched to this email
         Map<String, String> names = namesOf(db, List.of(a.createdBy));
         history(db, a, "answer", admin.username,
-                "Answer by " + names.getOrDefault(a.createdBy, a.createdBy) + " to " + addressed(r) + ", approved and sent",
+                "Answer by " + names.getOrDefault(a.createdBy, a.createdBy) + " to " + addressed(r)
+                        + (a.createdBy.equals(admin.username) ? ", sent" : ", approved and sent"),
                 a.toEmails, a.ccEmails, textHtml(a.bodyText), null,
                 result.refused().isEmpty() ? null : "Refused: " + EmailService.joinRefused(result.refused()), result.messageId());
         db.commit();

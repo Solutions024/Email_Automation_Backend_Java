@@ -14,7 +14,6 @@ import com.nagad.npsb.models.InboxIssue;
 import com.nagad.npsb.models.User;
 import com.nagad.npsb.service.Approvals;
 import com.nagad.npsb.service.EmailService;
-import com.nagad.npsb.service.Forwarding;
 import com.nagad.npsb.service.Inbox;
 import com.nagad.npsb.service.ServerSettings;
 import com.nagad.npsb.service.Settings;
@@ -50,8 +49,6 @@ public final class MoreApi {
         s.put("/api/replies/{reply_id}/read", "Mark one reply as read or as new again (for this user only).", MoreApi::setReplyRead);
         s.post("/api/replies/read-all", "Mark every new message as read: of one list (category), or of all of them.", MoreApi::markAllRepliesRead);
         s.post("/api/replies/{reply_id}/link", "An admin decides which sent email a message answers.", MoreApi::linkReply);
-        s.post("/api/replies/{reply_id}/forward", "Email a reply to the person who prepared the email it answers, or to yourself.",
-                MoreApi::forwardReply);
         s.post("/api/replies/{reply_id}/dismiss", "Not about any of our emails: hidden from the lists.", MoreApi::dismissReply);
         s.get("/api/inbox-issues", "Messages in the mailbox that could not be read.", MoreApi::listInboxIssues);
         s.post("/api/inbox-issues/{issue_id}/retry", "Retry Inbox Issue", MoreApi::retryInboxIssue);
@@ -112,7 +109,6 @@ public final class MoreApi {
                 "subject", r.subject, "snippet", r.snippet, "matched_by", r.matchedBy,
                 "received_at", Py.iso(r.receivedAt), "found_at", Py.iso(r.foundAt), "is_read", isRead,
                 "attachments", attachments,
-                "forward", Py.map("status", r.forwardStatus, "to", r.forwardTo, "note", r.forwardNote, "at", Py.iso(r.forwardedAt)),
                 "original", d == null ? null : Py.map("subject", d.subject, "sent_at", Py.iso(d.sentAt),
                         "upload_id", d.uploadId, "txn_count", d.txnCount, "total_amount", Py.toDouble(d.totalAmount),
                         "reply_status", d.replyStatus, "to", Py.csv(d.toEmails)));
@@ -224,14 +220,11 @@ public final class MoreApi {
         Map<String, Object> data = replyToDict(r, true, partnerNames(db), true);
         EmailDispatch d = r.dispatch();
         if (d != null) {
-            User preparedBy = Forwarding.composer(db, d);
+            User preparedBy = Py.isEmpty(d.submittedBy) ? null : db.first(User.class, "WHERE t.username = ?", d.submittedBy);
             data.put("prepared_by", Py.map(
                     "username", d.submittedBy,
                     "name", preparedBy != null ? Py.or(preparedBy.fullName, preparedBy.username) : d.submittedBy,
-                    "email", preparedBy != null ? preparedBy.email : null,
-                    "problem", Forwarding.problem(preparedBy, d),
                     "is_me", user.username.equals(d.submittedBy)));
-            data.put("my_email_problem", Forwarding.problem(user));
             Map<String, Object> answer = new LinkedHashMap<>();
             answer.put("problem", Answers.canAnswer(db, user, r));
             answer.putAll(Answers.defaults(r));
@@ -309,39 +302,8 @@ public final class MoreApi {
             d.replyStatusAt = Py.now();
             MainApi.addEvent(db, d.id, "status", "received", "The partner's reply was linked to this email by hand.", admin.username);
         }
-        boolean queued = Forwarding.queue(r);
         db.commit();
-        if (queued) Forwarding.kick();
         return replyToDict(r, true, partnerNames(db), false);
-    }
-
-    static Object forwardReply(Req req) {
-        User user = Auth.currentUser(req);
-        int replyId = req.pathInt("reply_id");
-        Body b = Body.of(req);
-        String to = b.literal("to", "prepared_by", "prepared_by", "me");
-        b.done();
-        Db db = req.db();
-        EmailReply r = getReplyOr404(db, replyId);
-        if (r.dispatch() == null) {
-            throw new ApiError(400, "Only messages that belong to one of our emails can be forwarded. Link it to an email first.");
-        }
-        Object[] result;
-        if (to.equals("me") && !user.username.equals(r.dispatch().submittedBy)) {
-            String reason = Forwarding.problem(user);
-            if (reason != null) throw new ApiError(400, reason);
-            result = Forwarding.sendCopy(db, r, user, user.username);
-            db.commit();
-        } else {
-            if (Forwarding.QUEUED.equals(r.forwardStatus) || Forwarding.SENDING.equals(r.forwardStatus)) {
-                throw new ApiError(409, "It is being forwarded right now. Wait a moment and open it again.");
-            }
-            result = Forwarding.forwardToComposer(db, r, user.username);
-        }
-        boolean ok = (Boolean) result[0];
-        String text = (String) result[1];
-        if (!ok) throw new ApiError(text.contains("Could not forward") ? 502 : 400, text);
-        return Py.map("message", text, "forward", replyToDict(r, true, new HashMap<>(), false).get("forward"));
     }
 
     static Object dismissReply(Req req) {
@@ -483,12 +445,7 @@ public final class MoreApi {
         for (Object[] row : db.rows("SELECT status, COUNT(id) FROM email_dispatches GROUP BY status ORDER BY status")) statuses.add(Arrays.asList(row));
         parts.add(statuses);
         parts.add(db.scalar("SELECT MAX(id) FROM email_events"));
-        parts.add(Arrays.asList(db.rows("SELECT COUNT(id), MAX(id), MAX(handled_at), MAX(forwarded_at) FROM email_replies").get(0)));
-        List<Object> forwards = new ArrayList<>();
-        for (Object[] row : db.rows("SELECT forward_status, COUNT(id) FROM email_replies GROUP BY forward_status ORDER BY forward_status")) {
-            forwards.add(Arrays.asList(row));
-        }
-        parts.add(forwards);
+        parts.add(Arrays.asList(db.rows("SELECT COUNT(id), MAX(id), MAX(handled_at) FROM email_replies").get(0)));
         parts.add(Arrays.asList(db.rows("SELECT MAX(id), MAX(decided_at) FROM change_requests").get(0)));
         parts.add(Answers.activityParts(db));
         return Py.map("stamp", Crypto.sha1Hex(String.valueOf(parts)).substring(0, 16));
@@ -795,16 +752,10 @@ public final class MoreApi {
             return v;
         });
         List<String> cc = b.check("cc_emails", b.strList("cc_emails", null), v -> cleanList(v, "CC"));
-        Integer window = b.check("duplicate_window_days", b.integer("duplicate_window_days", 30), v -> {
-            if (v < 0 || v > 365) throw new ValueError("Days for repeated transactions must be between 0 (off) and 365");
-            return v;
-        });
-        List<String> ops = b.check("ops_alert_emails", b.strList("ops_alert_emails", List.of()), v -> cleanList(v, "alert"));
-        Boolean forward = b.bool("forward_replies", true);
         b.done();
         Db db = req.db();
         Settings.save(db, Py.map("followup_due_days", followupDueDays, "auto_followup_enabled", autoEnabled, "auto_followup_max", autoMax,
-                "cc_emails", cc, "duplicate_window_days", window, "ops_alert_emails", ops, "forward_replies", forward), admin.username);
+                "cc_emails", cc), admin.username);
         return emailSettingsDict(db);
     }
 

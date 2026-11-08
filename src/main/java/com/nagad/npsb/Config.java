@@ -47,6 +47,24 @@ public final class Config {
         return values;
     }
 
+    /**
+     * The backend folder (where pom.xml and .env are), wherever the server is started from: from the compiled
+     * classes (backend/target/classes) or the jar upwards, else the working folder.
+     */
+    public static final Path BACKEND_DIR = findBackendDir();
+
+    private static Path findBackendDir() {
+        try {
+            Path code = Paths.get(Config.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            for (Path dir = Files.isDirectory(code) ? code : code.getParent(); dir != null; dir = dir.getParent()) {
+                if (Files.isRegularFile(dir.resolve("pom.xml"))) return dir;
+            }
+            return Files.isDirectory(code) ? code : code.getParent();
+        } catch (Exception e) {
+            return Paths.get("").toAbsolutePath();
+        }
+    }
+
     /** backend/.env: looked for from the working folder upwards, then from the jar's folder upwards. */
     private static Path findDotEnv() {
         List<Path> starts = new ArrayList<>();
@@ -163,7 +181,8 @@ public final class Config {
     // Optional: a JDBC URL to use a different database (e.g. jdbc:h2:./test-db;MODE=MySQL)
     public static final String DATABASE_URL = env("DATABASE_URL", "");
 
-    // Sender of every email: the Gmail address (MAIL_PROVIDER=gmail) or MAIL_FROM (MAIL_PROVIDER=smtp).
+    // Sender of every email: GMAIL_FROM, else the Gmail address (MAIL_PROVIDER=gmail), or MAIL_FROM (MAIL_PROVIDER=smtp).
+    // It can differ from the account that signs in to the mail server (GMAIL_ADDRESS / SMTP_USER).
     public static final List<String> CC_EMAILS = envList("CC_EMAILS", "");  // default for new emails
 
     // Login (JWT). Set JWT_SECRET to a long random string in .env. Without it a random secret is used,
@@ -180,9 +199,17 @@ public final class Config {
     public static final int FOLLOWUP_DUE_DAYS = envInt("FOLLOWUP_DUE_DAYS", "3");
     public static final boolean AUTO_FOLLOWUP_ENABLED = envBool("AUTO_FOLLOWUP_ENABLED", "false");
     public static final int AUTO_FOLLOWUP_MAX = envInt("AUTO_FOLLOWUP_MAX", "3");
-    public static final int DUPLICATE_WINDOW_DAYS = envInt("DUPLICATE_WINDOW_DAYS", "30");
-    public static final List<String> OPS_ALERT_EMAILS = envList("OPS_ALERT_EMAILS", "");
-    public static final boolean FORWARD_REPLIES = envBool("FORWARD_REPLIES", "true");
+
+    // The built-in admin, created at startup if missing. There is no self sign-up: this admin creates every other
+    // admin and user (Users & Security). Change the password after the first sign-in.
+    public static final String ADMIN_USERNAME = "admin";
+    public static final String ADMIN_PASSWORD = "Admin@1234";  // set once; the admin can change it on My Profile
+    // Where the admin's sign-in codes are emailed. Empty: the mailbox partner replies are read from.
+    public static final String ADMIN_EMAIL = env("ADMIN_EMAIL", "").strip().toLowerCase();
+
+    // The application log (AppLog): logins, transactions and errors, never shown in the portal.
+    // Default: backend/app/logs inside the project. A relative APP_LOG_DIR is taken from the backend folder.
+    public static final String APP_LOG_DIR = BACKEND_DIR.resolve(env("APP_LOG_DIR", "app/logs")).normalize().toString();
 
     public static final int VERIFICATION_MAX_ATTEMPTS = 5;      // wrong codes before it expires
     public static final int VERIFICATION_RESEND_SECONDS = 60;   // wait before sending another
@@ -204,6 +231,7 @@ public final class Config {
         LIVE.put("GMAIL_ADDRESS", env("GMAIL_ADDRESS", "").strip());
         LIVE.put("GMAIL_APP_PASSWORD", env("GMAIL_APP_PASSWORD", ""));
         LIVE.put("GMAIL_FOLDER", env("GMAIL_FOLDER", "INBOX"));
+        LIVE.put("GMAIL_FROM", env("GMAIL_FROM", "").strip());  // sender address; empty: the Gmail address
         LIVE.put("SMTP_HOST", env("SMTP_HOST", "localhost"));
         LIVE.put("SMTP_PORT", envInt("SMTP_PORT", "1025"));
         LIVE.put("SMTP_USER", env("SMTP_USER", ""));
@@ -265,7 +293,7 @@ public final class Config {
     public static boolean SMTP_USE_TLS() { return gmail() || flag("SMTP_USE_TLS"); }
     public static int SMTP_MAX_ATTEMPTS() { return num("SMTP_MAX_ATTEMPTS"); }
     public static int SMTP_RETRY_SECONDS() { return num("SMTP_RETRY_SECONDS"); }
-    public static String MAIL_FROM() { return gmail() ? GMAIL_ADDRESS() : str("MAIL_FROM"); }
+    public static String MAIL_FROM() { return gmail() ? Py.or(Py.strip(str("GMAIL_FROM")), GMAIL_ADDRESS()) : str("MAIL_FROM"); }
     public static boolean INBOX_ENABLED() { return flag("INBOX_ENABLED"); }
     public static int IMAP_PORT() { return gmail() ? GMAIL_IMAP_PORT : num("IMAP_PORT"); }
     public static String IMAP_FOLDER() { return gmail() ? Py.or(Py.strip(str("GMAIL_FOLDER")), "INBOX") : str("IMAP_FOLDER"); }

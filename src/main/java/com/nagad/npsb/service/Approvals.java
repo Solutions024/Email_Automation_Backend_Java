@@ -12,9 +12,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Maker-checker for configuration: partners, email templates and template variables.
+ * Maker-checker for configuration: users' changes to email templates and template variables wait until an
+ * admin approves them. Admins' own changes, and partner changes (DIRECT), are applied at once and only recorded
+ * in the history.
  *
- * A change is first a request (maker). It is applied only when an admin who did not make it approves it
+ * A user's change is first a request (maker). It is applied only when an admin approves it
  * (checker). Approving fails if the thing was changed in the meantime (the request was made against an
  * older version): the maker then asks again. Every applied change stays in change_requests, so it is also
  * the change history. With maker-checker switched off (System Settings), changes apply at once and are
@@ -63,16 +65,22 @@ public final class Approvals {
         return db.count("SELECT COUNT(*) FROM users WHERE `role` = 'admin' AND is_active = ? AND username != ?", true, username);
     }
 
+    /** Changed directly by users, never held for approval (still kept in the change history). */
+    public static final java.util.Set<String> DIRECT = java.util.Set.of("partner");
+
     /**
      * A change made by `user`. With maker-checker on it waits for approval, else it is applied now.
-     * The caller has already checked that the change is valid.
+     * Partners (DIRECT) are always applied now. The caller has already checked that the change is valid.
      */
     public static Map<String, Object> submit(Db db, User user, String entity, String action, Integer entityId, String summary,
                                              Map<String, Object> after) {
         Kind kind = KINDS.get(entity);
+        // applied now: partners, maker-checker off, or an admin's own change (admins' changes need no approval for now)
+        boolean direct = DIRECT.contains(entity) || !Config.MAKER_CHECKER() || "admin".equals(user.role);
         Map<String, Object> before = entityId != null ? kind.snapshot().of(db, entityId) : null;
         if (entityId != null && before == null) throw new ApiError(404, label(entity) + " not found.");
-        if (entityId != null && db.first(ChangeRequest.class, "WHERE t.entity = ? AND t.entity_id = ? AND t.status = 'pending'",
+        // an older request still waiting can't be approved after a direct change (its "before" no longer matches)
+        if (!direct && entityId != null && db.first(ChangeRequest.class, "WHERE t.entity = ? AND t.entity_id = ? AND t.status = 'pending'",
                 entity, entityId) != null) {
             throw new ApiError(409, "A change to this " + label(entity).toLowerCase(java.util.Locale.ROOT)
                     + " is already waiting for approval. Wait for it to be approved or rejected, or cancel it.");
@@ -85,7 +93,7 @@ public final class Approvals {
         request.before = json(before);
         request.after = json(after);
         request.requestedBy = user.username;
-        if (!Config.MAKER_CHECKER()) {
+        if (direct) {
             request.entityId = kind.apply().get(action).apply(db, after == null ? new LinkedHashMap<>() : after, entityId, user.username);
             request.status = "applied";
             request.decidedBy = user.username;
@@ -126,9 +134,6 @@ public final class Approvals {
 
     public static ChangeRequest approve(Db db, int requestId, User admin) {
         ChangeRequest request = getPending(db, requestId);
-        if (request.requestedBy.equals(admin.username)) {
-            throw new ApiError(403, "You made this change, so another admin has to approve it.");
-        }
         Kind kind = KINDS.get(request.entity);
         String what = label(request.entity).toLowerCase(java.util.Locale.ROOT);
         if (request.entityId != null) {
@@ -178,7 +183,7 @@ public final class Approvals {
                 "requested_at", Py.iso(r.requestedAt),
                 "decided_by_name", r.decidedBy != null ? names.getOrDefault(r.decidedBy, r.decidedBy) : null,
                 "decided_at", Py.iso(r.decidedAt), "note", r.note,
-                "can_approve", me != null && "admin".equals(me.role) && "pending".equals(r.status) && !r.requestedBy.equals(me.username),
+                "can_approve", me != null && "admin".equals(me.role) && "pending".equals(r.status),
                 "can_cancel", me != null && "pending".equals(r.status) && r.requestedBy.equals(me.username));
     }
 }

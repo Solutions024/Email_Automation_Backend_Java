@@ -46,14 +46,16 @@ import java.util.regex.Pattern;
  *   * Each refresh-token chain is one "session" (browser/device) that the user can see and sign out of.
  *     Changing or resetting the password signs out every session.
  *
- * Two roles: "admin" and "user". Creating an admin account needs ADMIN_SIGNUP_CODE. Only admins manage users,
- * change partners and send emails (requireAdmin); users can do everything else.
+ * Two roles: "admin" and "user". There is no self sign-up: the built-in admin ("admin") creates the other
+ * admins and users, and admins create accounts after that. Only admins manage users
+ * and send emails (requireAdmin); users can do everything else, including partners and follow-ups.
  *
  * Protection: PBKDF2-SHA256 passwords (600k iterations), lock-out after wrong passwords, rate limits per IP,
  * tokens stored only as SHA-256 hashes, and every sign-in, failure, sign-out and change in auth_events.
  */
 public final class Auth {
     private Auth() {}
+    private static final java.util.logging.Logger LOG = java.util.logging.Logger.getLogger("npsb");
 
     static final int PBKDF2_ITERATIONS = 600_000;
     static final String REFRESH_COOKIE = "npsb_refresh";
@@ -144,6 +146,7 @@ public final class Auth {
                 "email", user.email,
                 "full_name", user.fullName,
                 "role", user.role,
+                "is_built_in", isBuiltInAdmin(user),
                 "email_verified", user.emailVerified,
                 "pending_email", user.pendingEmail,
                 "is_active", user.isActive,
@@ -390,15 +393,17 @@ public final class Auth {
     }
 
     static void deliverCodeEmail(String email, String name, String code, String purpose) {
-        String action = "change".equals(purpose) ? "confirm your new email address" : "sign in";
+        String action = "change".equals(purpose) ? "confirm your new email address"
+                : "reset".equals(purpose) ? "reset your password" : "sign in";
         String body = "\n    <div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2430;max-width:520px\">\n"
                 + "      <p>Hello " + Py.escape(name) + ",</p>\n"
                 + "      <p>Use this code to " + action + " for NPSB Dispute Email Automation:</p>\n"
                 + "      <p style=\"font-size:30px;font-weight:700;letter-spacing:8px;margin:20px 0;color:#e8222d\">" + code + "</p>\n"
                 + "      <p>The code is valid for " + Config.VERIFICATION_CODE_MINUTES() + " minutes. If you did not request it,\n"
-                + "         you can ignore this email.</p>\n"
+                + "         you can ignore this email" + ("reset".equals(purpose) ? "; your password stays the same" : "") + ".</p>\n"
                 + "    </div>";
-        String subject = "login".equals(purpose) ? "Your sign-in code" : "Your verification code";
+        String subject = "login".equals(purpose) ? "Your sign-in code" : "reset".equals(purpose) ? "Your password reset code"
+                : "Your verification code";
         EmailService.sendEmail(List.of(email), List.of(), subject + ": " + code, body, null, null, null);
     }
 
@@ -529,9 +534,86 @@ public final class Auth {
 
     // ================================================================ endpoints
 
-    /** The first account can always be created; after that it depends on ALLOW_REGISTRATION. */
+    /** No self sign-up: the built-in admin (ensureBuiltInAdmin) creates every account. */
     static boolean registrationOpen(Db db) {
-        return Config.ALLOW_REGISTRATION() || realUserCount(db) == 0;
+        return false;
+    }
+
+    public static boolean isBuiltInAdmin(User user) {
+        return user != null && Config.ADMIN_USERNAME.equals(user.username) && "admin".equals(user.role);
+    }
+
+    /** Accounts (create, passwords, roles, activation) are managed by the built-in admin only, not other admins. */
+    public static User requireBuiltInAdmin(Req req) {
+        User user = currentUser(req);
+        if (!isBuiltInAdmin(user)) throw new ApiError(403, "Only the built-in admin can manage accounts.");
+        return user;
+    }
+
+    /** Done once: the built-in admin was (re)set and every other account was switched off. */
+    private static final String BUILT_IN_RESET_KEY = "builtin_admin_reset_v1";
+
+    /**
+     * At startup: make sure the built-in admin exists. The first time (BUILT_IN_RESET_KEY), it is given the
+     * standard password and every other account is deactivated and signed out, so only the built-in admin can
+     * sign in until it creates (or reactivates) the other accounts on Users & Security.
+     */
+    public static void ensureBuiltInAdmin(Db db) {
+        boolean firstTime = db.get(com.nagad.npsb.models.AppSetting.class, BUILT_IN_RESET_KEY) == null;
+        User admin = db.first(User.class, "WHERE t.username = ?", Config.ADMIN_USERNAME);
+        boolean created = admin == null;
+        if (created) {
+            admin = new User();
+            admin.username = Config.ADMIN_USERNAME;
+            admin.fullName = "Administrator";
+        }
+        if (created || firstTime) {
+            admin.role = "admin";
+            admin.isActive = true;
+            admin.passwordHash = hashPassword(Config.ADMIN_PASSWORD);
+            admin.passwordChangedAt = Py.utcnow();
+            admin.failedLoginCount = 0;
+            admin.lockedUntil = null;
+        }
+        if (Py.isEmpty(admin.email)) {  // where its sign-in codes go; none: it signs in with the password only
+            String email = Py.or(Config.ADMIN_EMAIL, Py.strip(Py.or(Config.mailboxAddress(), ""))).toLowerCase(java.util.Locale.ROOT);
+            if (!email.isEmpty() && db.first(User.class, "WHERE t.email = ? AND t.username != ?", email, admin.username) == null) {
+                admin.email = email;
+                admin.emailVerified = true;
+                admin.emailVerifiedAt = Py.utcnow();
+            } else {
+                admin.email = null;
+            }
+        }
+        if (created) db.add(admin);
+        db.flush();
+        if (firstTime) {
+            if (!created) {  // old sessions of the account are ended (new password)
+                admin.tokenVersion += 1;
+                revokeAllSessions(db, admin, null);
+                revokeTrustedDevices(db, admin);
+            }
+            int off = 0;
+            for (User other : db.all(User.class, "WHERE t.id != ? AND t.is_active = ?", admin.id, true)) {
+                other.isActive = false;
+                other.tokenVersion += 1;
+                revokeAllSessions(db, other, null);
+                revokeTrustedDevices(db, other);
+                off++;
+            }
+            com.nagad.npsb.models.AppSetting flag = new com.nagad.npsb.models.AppSetting();
+            flag.key = BUILT_IN_RESET_KEY;
+            flag.value = com.nagad.npsb.PyJson.dumps(Py.isoSeconds(Py.now()));
+            flag.updatedBy = "#startup";
+            db.add(flag);
+            LOG.info("Built-in admin '" + admin.username + "' is set up; " + off + " other account(s) were deactivated "
+                    + "until the admin reactivates them.");
+        }
+        db.commit();
+        if (admin.email == null) {
+            LOG.warning("The built-in admin has no email address, so it signs in with its password only. Set ADMIN_EMAIL in .env "
+                    + "(or set up the Gmail account) to get sign-in codes.");
+        }
     }
 
     public static void routes(Server s) {
@@ -556,8 +638,7 @@ public final class Auth {
         s.post("/api/auth/change-password", "Change Password", Auth::changePassword);
         s.post("/api/auth/forgot-password", "Always gives the same answer, so nobody can find out which emails have an account.",
                 Auth::forgotPassword);
-        s.get("/api/auth/reset-password/{token}", "Lets the reset page say early whether the link is still valid.", Auth::checkResetToken);
-        s.post("/api/auth/reset-password", "Reset Password", Auth::resetPassword);
+        s.post("/api/auth/reset-password", "Set a new password with the 6-digit code emailed by forgot-password.", Auth::resetPassword);
         s.get("/api/auth/sessions", "Devices/browsers where the user is signed in.", Auth::listSessions);
         s.delete("/api/auth/sessions/{session_id}", "Revoke Session", Auth::revokeSession);
         s.get("/api/auth/activity", "My Activity", Auth::myActivity);
@@ -574,7 +655,7 @@ public final class Auth {
         b.done();
         Db db = req.db();
         REGISTER_LIMITER.check(req.clientIp());
-        if (!registrationOpen(db)) throw new ApiError(403, "Registration is closed. Ask an admin to create an account for you.");
+        if (!registrationOpen(db)) throw new ApiError(403, "There is no sign-up. Ask the admin to create an account for you.");
         checkAdminCode(db, req, role, adminCode, username);
         checkPasswordStrength(password, username, email);
         String conflict = accountConflict(db, username, email, null);
@@ -808,6 +889,16 @@ public final class Auth {
         }
         if (!rememberMe) forgetDevice(db, req);  // box unticked: this browser needs the code again
 
+        // The built-in admin before an email address is set up: the password is enough.
+        if (isBuiltInAdmin(user) && Py.isEmpty(user.email)) {
+            user.lockedUntil = null;
+            user.lastLoginAt = now;
+            startSession(db, req, user, rememberMe, null);
+            logEvent(db, req, "login_success", user, "built-in admin, no email address: password only");
+            db.commit();
+            return tokenResponse(user);
+        }
+
         // Step 2: a code emailed to the account's address.
         if (Py.isEmpty(user.email)) {
             db.commit();
@@ -993,95 +1084,81 @@ public final class Auth {
         return tokenResponse(user);
     }
 
+    /**
+     * Forgot password, step 1: email a 6-digit code (OTP) to the account. Always the same answer, so nobody can
+     * find out which emails have an account. Only the newest code works; a new one can be asked for after a minute.
+     */
     static Object forgotPassword(Req req) {
         Body b = Body.of(req);
         String email = b.check("email", b.str("email"), Auth::normalizeLogin);
         b.done();
         Db db = req.db();
         FORGOT_LIMITER.check(req.clientIp());
-        Map<String, Object> answer = Py.map("message", "If an account exists for that email, a password reset link has been sent. "
-                + "The link is valid for " + Config.PASSWORD_RESET_MINUTES() + " minutes.");
+        Map<String, Object> answer = Py.map("message", "If an account exists for " + email + ", we've emailed it a 6-digit code. "
+                + "It is valid for " + Config.VERIFICATION_CODE_MINUTES() + " minutes.");
         User user = db.first(User.class, "WHERE t.email = ?", email);
         if (user == null || !Boolean.TRUE.equals(user.isActive)) {
             logEvent(db, req, "password_reset_requested", null, email, false, "no active account");
             db.commit();
             return answer;
         }
-
-        // Only the newest link works
-        db.execute("UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL", Py.utcnow(), user.id);
-        String raw = Crypto.tokenUrlsafe(32);
-        PasswordResetToken reset = new PasswordResetToken();
-        reset.userId = user.id;
-        reset.tokenHash = hashToken(raw);
-        reset.ipAddress = req.clientIp();
-        reset.expiresAt = Py.utcnow().plusMinutes(Config.PASSWORD_RESET_MINUTES());
-        db.add(reset);
-        logEvent(db, req, "password_reset_requested", user, "");
+        EmailVerificationCode previous = latestCode(db, user, "reset", user.email);
+        if (previous != null && Duration.between(previous.createdAt, Py.utcnow()).getSeconds() < Config.VERIFICATION_RESEND_SECONDS) {
+            db.commit();  // a code was sent less than a minute ago: it still works
+            return answer;
+        }
+        db.execute("UPDATE email_verification_codes SET used_at = ? WHERE user_id = ? AND purpose = 'reset' AND used_at IS NULL",
+                Py.utcnow(), user.id);
+        String code = Crypto.sixDigits();
+        EmailVerificationCode record = new EmailVerificationCode();
+        record.userId = user.id;
+        record.email = user.email;
+        record.purpose = "reset";
+        record.codeHash = codeHash(user, "reset", code);
+        record.expiresAt = Py.utcnow().plusMinutes(Config.VERIFICATION_CODE_MINUTES());
+        db.add(record);
+        logEvent(db, req, "password_reset_requested", user, "code emailed");
         db.commit();
         String to = user.email, name = Py.or(user.fullName, user.username);
-        req.afterResponse = () -> sendResetEmail(to, name, raw);
+        req.afterResponse = () -> {
+            try {
+                deliverCodeEmail(to, name, code, "reset");
+            } catch (Exception exc) {  // never crash the request; the log shows what happened
+                LOG.warning("Password reset code to " + to + " could not be sent: " + exc.getMessage());
+            }
+        };
         return answer;
     }
 
-    static void sendResetEmail(String email, String name, String rawToken) {
-        String link = Config.APP_BASE_URL + "/?reset_token=" + rawToken;
-        String body = "\n    <div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2430;max-width:520px\">\n"
-                + "      <p>Hello " + Py.escape(name) + ",</p>\n"
-                + "      <p>We received a request to reset the password for your NPSB Dispute Email Automation account.</p>\n"
-                + "      <p style=\"margin:24px 0\">\n"
-                + "        <a href=\"" + link + "\" style=\"background:#e8222d;color:#fff;padding:10px 18px;border-radius:6px;\n"
-                + "           text-decoration:none;font-weight:600\">Reset password</a>\n"
-                + "      </p>\n"
-                + "      <p>Or open this link: <br><a href=\"" + link + "\">" + link + "</a></p>\n"
-                + "      <p>The link is valid for " + Config.PASSWORD_RESET_MINUTES() + " minutes and can be used once.\n"
-                + "         If you did not ask for this, you can ignore this email; your password stays the same.</p>\n"
-                + "    </div>";
-        try {
-            EmailService.sendEmail(List.of(email), List.of(), "Reset your password", body, null, null, null);
-        } catch (Exception exc) {  // never crash the request; the log shows what happened
-            System.out.println("Password reset email to " + email + " failed: " + exc.getMessage());
-        }
-    }
-
-    static PasswordResetToken validReset(Db db, String token) {
-        PasswordResetToken reset = db.first(PasswordResetToken.class, "WHERE t.token_hash = ?", hashToken(token));
-        if (reset == null || reset.usedAt != null || !reset.expiresAt.isAfter(Py.utcnow())) {
-            throw new ApiError(400, "This reset link is invalid or has expired. Please request a new one.");
-        }
-        return reset;
-    }
-
-    static Object checkResetToken(Req req) {
-        PasswordResetToken reset = validReset(req.db(), req.path("token"));
-        return Py.map("username", reset.user().username);
-    }
-
+    /** Forgot password, step 2: the emailed code is right -> the new password is set and every session is signed out. */
     static Object resetPassword(Req req) {
         Body b = Body.of(req);
-        String token = b.str("token");
+        String email = b.check("email", b.str("email"), Auth::normalizeLogin);
+        String code = b.str("code");
         String newPassword = b.str("new_password");
         b.done();
         Db db = req.db();
-        PasswordResetToken reset = validReset(db, token);
-        User user = reset.user();
-        checkPasswordStrength(newPassword, user.username, Py.or(user.email, ""));
+        User user = db.first(User.class, "WHERE t.email = ?", email);
+        if (user == null || !Boolean.TRUE.equals(user.isActive)) {
+            throw new ApiError(400, "This code has expired or was replaced. Request a new code.");
+        }
+        checkPasswordStrength(newPassword, user.username, Py.or(user.email, ""));  // before the code, so no attempt is used up
+        checkCode(db, user, "reset", user.email, code);
 
         user.passwordHash = hashPassword(newPassword);
         user.passwordChangedAt = Py.utcnow();
         user.tokenVersion += 1;
         user.failedLoginCount = 0;
         user.lockedUntil = null;
-        if (!Boolean.TRUE.equals(user.emailVerified)) {  // the reset link reached this inbox, so the address is real
+        if (!Boolean.TRUE.equals(user.emailVerified)) {  // the code reached this inbox, so the address is real
             user.emailVerified = true;
             user.emailVerifiedAt = Py.utcnow();
         }
-        reset.usedAt = Py.utcnow();
         revokeAllSessions(db, user, null);
         revokeTrustedDevices(db, user);
-        logEvent(db, req, "password_reset", user, "all sessions signed out");
+        logEvent(db, req, "password_reset", user, "with the emailed code; all sessions signed out");
         db.commit();
-        return Py.map("message", "Your password has been reset. You can now sign in with the new password.");
+        return Py.map("message", "Your password has been reset. Sign in with the new password.");
     }
 
     static Object listSessions(Req req) {

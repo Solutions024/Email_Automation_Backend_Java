@@ -28,4 +28,10 @@ public class ChangeRequest extends Entity {
     public String decidedBy;
     public LocalDateTime decidedAt;
     public String note;
+
+    @Override
+    protected void afterCommit(boolean inserted) {
+        com.nagad.npsb.AppLog.event("CHANGE", com.nagad.npsb.AppLog.kv("request", id, "what", entity, "id", entityId,
+                "action", action, "status", status, "by", inserted ? requestedBy : decidedBy, "summary", summary, "note", note));
+    }
 }

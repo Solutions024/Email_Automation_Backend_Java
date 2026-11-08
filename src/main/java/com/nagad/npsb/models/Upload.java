@@ -35,4 +35,10 @@ public class Upload extends Entity {
         }
         return fileContent;
     }
+
+    @Override
+    protected void afterCommit(boolean inserted) {
+        if (inserted) com.nagad.npsb.AppLog.event("UPLOAD", com.nagad.npsb.AppLog.kv("upload", id, "file", filename,
+                "by", uploadedBy, "rows", totalRows, "valid", validRows));
+    }
 }

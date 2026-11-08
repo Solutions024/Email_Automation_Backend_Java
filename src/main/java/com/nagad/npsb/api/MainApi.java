@@ -13,7 +13,6 @@ import com.nagad.npsb.models.TemplateVariable;
 import com.nagad.npsb.models.Transaction;
 import com.nagad.npsb.models.Upload;
 import com.nagad.npsb.models.User;
-import com.nagad.npsb.service.Alerts;
 import com.nagad.npsb.service.Approvals;
 import com.nagad.npsb.service.Delivery;
 import com.nagad.npsb.service.EmailCheck;
@@ -178,7 +177,7 @@ public final class MainApi {
     static LinkedHashMap<List<String>, List<Transaction>> groupByPartner(Upload upload) {
         Map<List<String>, List<Transaction>> grouped = new HashMap<>();
         for (Transaction t : upload.transactions()) {
-            if (EmailService.MAIL_TYPES.containsKey(t.mailType) && t.duplicateOf == null) {  // already reported elsewhere: left out
+            if (EmailService.MAIL_TYPES.containsKey(t.mailType) && !t.isDuplicate()) {  // already in an earlier file: left out
                 grouped.computeIfAbsent(List.of(nameKey(t.partnerName), t.mailType), k -> new ArrayList<>()).add(t);
             }
         }
@@ -255,8 +254,8 @@ public final class MainApi {
         s.put("/api/emails/{email_id}/reply-status", "Admin records whether the partner replied.", MainApi::setReplyStatus);
         s.post("/api/emails/{email_id}/notes", "Admin note on a sent email.", MainApi::addEmailNote);
         s.put("/api/emails/{email_id}/remarks", "Admin's free-text remarks on a sent email.", MainApi::setRemarks);
-        s.get("/api/emails/{email_id}/followup-draft", "A ready-made follow-up for the admin to edit.", MainApi::followupDraft);
-        s.post("/api/emails/{email_id}/followups", "Admin sends a follow-up for a sent email, in the original thread.", MainApi::sendFollowup);
+        s.get("/api/emails/{email_id}/followup-draft", "A ready-made follow-up to edit before sending.", MainApi::followupDraft);
+        s.post("/api/emails/{email_id}/followups", "Send a follow-up for a sent email (users and admins), in the original thread.", MainApi::sendFollowup);
         MoreApi.routes(s);
     }
 
@@ -362,11 +361,9 @@ public final class MainApi {
         return out;
     }
 
-    /** With maker-checker on, anyone may ask for a partner change (an admin approves it); else admins only. */
+    /** Anyone signed in changes partners directly: no approval needed (Approvals.DIRECT). */
     static User requirePartnerMaker(Req req) {
-        User user = Auth.currentUser(req);
-        if (!Config.MAKER_CHECKER() && !"admin".equals(user.role)) throw new ApiError(403, "Only admins can do this.");
-        return user;
+        return Auth.currentUser(req);
     }
 
     /** What a partner change compares against (not the refused flags: those change by themselves). */
@@ -932,39 +929,50 @@ public final class MainApi {
         return Res.file(ExcelParser.buildTemplate(), XLSX_TYPE, "attachment; filename=\"dispute_transactions_template.xlsx\"");
     }
 
-    static final List<String> REPORTED_STATUSES = List.of("PENDING", "SENDING", "SENT");  // with an admin or gone out
-
-    /** (partner, RRN) -> the email that reported it within the duplicate window (Email Configuration). */
-    static Map<List<String>, EmailDispatch> reportedTransactions(Db db, Integer excludeUploadId) {
-        int days = Settings.getInt("duplicate_window_days");
-        Map<List<String>, EmailDispatch> reported = new HashMap<>();
-        if (days == 0) return reported;
-        LocalDateTime since = LocalDateTime.now().minusDays(days);
-        for (EmailDispatch d : db.all(EmailDispatch.class, "WHERE t.status IN ('PENDING', 'SENDING', 'SENT') AND t.upload_id != ? "
-                        + "AND (t.sent_at >= ? OR (t.sent_at IS NULL AND t.submitted_at >= ?)) ORDER BY t.id",
-                excludeUploadId == null ? 0 : excludeUploadId, since, since)) {
-            for (Transaction t : dispatchTransactions(d)) reported.putIfAbsent(List.of(nameKey(t.partnerName), t.rrn), d);
+    /** RRN -> the first transaction taken in with it from an earlier file (rows left out as repeats don't count). */
+    static Map<String, Transaction> earlierTransactions(Db db, Collection<String> rrns) {
+        Map<String, Transaction> found = new HashMap<>();
+        List<String> all = new ArrayList<>(new LinkedHashSet<>(rrns));
+        for (int i = 0; i < all.size(); i += 500) {
+            List<String> chunk = all.subList(i, Math.min(i + 500, all.size()));
+            for (Transaction t : db.all(Transaction.class, "WHERE t.rrn IN " + Db.in(chunk)
+                    + " AND t.duplicate_of IS NULL AND t.duplicate_of_txn IS NULL ORDER BY t.id", chunk.toArray())) {
+                found.putIfAbsent(t.rrn, t);
+            }
         }
-        return reported;
+        return found;
+    }
+
+    /** The email (of the earlier file) that holds this transaction, if one was written. */
+    static EmailDispatch emailOf(Db db, Transaction t, Map<Integer, List<EmailDispatch>> byUpload) {
+        List<EmailDispatch> emails = byUpload.computeIfAbsent(t.uploadId,
+                id -> db.all(EmailDispatch.class, "WHERE t.upload_id = ? ORDER BY t.id", id));
+        for (EmailDispatch d : emails) {
+            if (t.mailType != null && t.mailType.equals(d.mailType) && nameKey(t.partnerName).equals(nameKey(d.partner().name))) return d;
+        }
+        return null;
     }
 
     static List<Object> duplicatesOf(Db db, Upload upload) {
         List<Transaction> rows = new ArrayList<>();
-        for (Transaction t : upload.transactions()) if (t.duplicateOf != null && t.duplicateOf != 0) rows.add(t);
-        Map<Integer, EmailDispatch> emails = new HashMap<>();
-        if (!rows.isEmpty()) {
-            Set<Integer> ids = new LinkedHashSet<>();
-            for (Transaction t : rows) ids.add(t.duplicateOf);
-            for (EmailDispatch d : db.all(EmailDispatch.class, "WHERE t.id IN " + Db.in(ids), ids.toArray())) emails.put(d.id, d);
-        }
+        for (Transaction t : upload.transactions()) if (t.isDuplicate()) rows.add(t);
         rows.sort(Comparator.comparing(t -> t.excelRow));
+        Map<Integer, List<EmailDispatch>> emailsByUpload = new HashMap<>();
+        Map<Integer, Upload> uploads = new HashMap<>();
         List<Object> out = new ArrayList<>();
         for (Transaction t : rows) {
-            EmailDispatch d = emails.get(t.duplicateOf);
+            Transaction first = t.duplicateOfTxn != null ? db.get(Transaction.class, t.duplicateOfTxn) : null;
+            EmailDispatch d = first != null ? emailOf(db, first, emailsByUpload)
+                    : t.duplicateOf != null ? db.get(EmailDispatch.class, t.duplicateOf) : null;
+            Upload from = first != null ? uploads.computeIfAbsent(first.uploadId, id -> db.get(Upload.class, id))
+                    : d != null ? d.upload() : null;
             LocalDateTime when = d == null ? null : d.sentAt != null ? d.sentAt : d.submittedAt;
             out.add(Py.map("excel_row", t.excelRow, "rrn", t.rrn, "partner_name", t.partnerName, "mail_type", t.mailType,
-                    "amount", Py.toDouble(t.amount), "email_id", t.duplicateOf, "email_status", d != null ? d.status : null,
-                    "email_date", Py.iso(when), "email_upload", d != null ? d.upload().filename : null));
+                    "amount", Py.toDouble(t.amount),
+                    "first_upload_id", from != null ? from.id : null, "first_upload", from != null ? from.filename : null,
+                    "first_uploaded_at", from != null ? Py.iso(from.uploadedAt) : null,
+                    "first_row", first != null ? first.excelRow : null,
+                    "email_id", d != null ? d.id : null, "email_status", d != null ? d.status : null, "email_date", Py.iso(when)));
         }
         return out;
     }
@@ -986,7 +994,7 @@ public final class MainApi {
         List<Object> duplicates = duplicatesOf(db, upload);
         int inward = 0, outward = 0;
         for (Transaction t : txns) {
-            boolean dup = t.duplicateOf != null && t.duplicateOf != 0;
+            boolean dup = t.isDuplicate();
             if ("inward".equals(t.mailType) && !dup) inward++;
             if ("outward".equals(t.mailType) && !dup) outward++;
         }
@@ -1001,8 +1009,7 @@ public final class MainApi {
                 "skipped_rows", rowErrors.size(),
                 "row_errors", rowErrors,
                 "duplicate_rows", duplicates.size(),
-                "duplicates", duplicates,
-                "duplicate_window_days", Settings.get("duplicate_window_days"));
+                "duplicates", duplicates);
     }
 
     static Object uploadFile(Req req) throws IOException {
@@ -1027,11 +1034,13 @@ public final class MainApi {
         upload.validRows = parsed.validRows().size();
         upload.fileContent = content;
         upload.uploadedBy = user.username;
-        // the same transaction reported to the partner recently (another upload): left out of the new emails
-        Map<List<String>, EmailDispatch> reported = reportedTransactions(db, null);
+        // a transaction (RRN) already taken in from an earlier file, in any upload: left out of the new emails
+        List<String> rrns = new ArrayList<>();
+        for (Transaction t : parsed.validRows()) rrns.add(t.rrn);
+        Map<String, Transaction> earlier = earlierTransactions(db, rrns);
         for (Transaction t : parsed.validRows()) {
-            EmailDispatch d = reported.get(List.of(nameKey(t.partnerName), t.rrn));
-            if (d != null) t.duplicateOf = d.id;
+            Transaction first = earlier.get(t.rrn);
+            if (first != null) t.duplicateOfTxn = first.id;
         }
         db.add(upload);
         db.flush();
@@ -1057,7 +1066,7 @@ public final class MainApi {
         }
         Map<Integer, Long> dups = new HashMap<>();
         for (Object[] row : db.rows("SELECT upload_id, COUNT(id) FROM transactions WHERE upload_id IN " + Db.in(ids)
-                + " AND duplicate_of IS NOT NULL GROUP BY upload_id", ids.toArray())) {
+                + " AND (duplicate_of IS NOT NULL OR duplicate_of_txn IS NOT NULL) GROUP BY upload_id", ids.toArray())) {
             dups.put(((Number) row[0]).intValue(), ((Number) row[1]).longValue());
         }
         List<String> who = new ArrayList<>();
@@ -1139,8 +1148,7 @@ public final class MainApi {
                 "total_rows", upload.totalRows,
                 "valid_rows", upload.validRows,
                 "groups", groups,
-                "duplicates", duplicatesOf(db, upload),
-                "duplicate_window_days", Settings.get("duplicate_window_days"));
+                "duplicates", duplicatesOf(db, upload));
     }
 
     /** round(x, 2) (the exact binary value, rounded like Python). */
@@ -1474,10 +1482,6 @@ public final class MainApi {
         }
         d.sendingSince = null;
         db.commit();
-        if ("FAILED".equals(d.status)) {
-            Alerts.alert("send:" + d.id, "The email to " + d.partner().name + " could not be sent",
-                    List.of("Subject: " + d.subject, "Error: " + d.error, "It is in Pending Mails; an admin can send it again."));
-        }
     }
 
     static Object sendSelected(Req req) {
@@ -1625,7 +1629,8 @@ public final class MainApi {
         Db db = req.db();
         EmailDispatch d = db.get(EmailDispatch.class, emailId);
         if (d == null) throw new ApiError(404, "Email not found.");
-        List<EmailEvent> events = db.all(EmailEvent.class, "WHERE t.dispatch_id = ? ORDER BY t.created_at, t.id", emailId);
+        List<EmailEvent> events = db.all(EmailEvent.class, "WHERE t.dispatch_id = ? AND t.kind != 'forwarded' "
+                + "ORDER BY t.created_at, t.id", emailId);  // forwarding replies no longer exists: old entries are hidden
         List<String> who = new ArrayList<>();
         for (EmailEvent e : events) who.add(e.createdBy);
         who.add(d.submittedBy);
@@ -1759,7 +1764,7 @@ public final class MainApi {
     }
 
     static Object followupDraft(Req req) {
-        Auth.requireAdmin(req);
+        Auth.currentUser(req);  // anyone signed in can follow up, whenever they want
         int emailId = req.pathInt("email_id");
         Db db = req.db();
         EmailDispatch d = getSentOr404(db, emailId);
@@ -1793,7 +1798,7 @@ public final class MainApi {
     }
 
     static Object sendFollowup(Req req) {
-        User admin = Auth.requireAdmin(req);
+        User admin = Auth.currentUser(req);  // users and admins
         int emailId = req.pathInt("email_id");
         Body b = Body.of(req);
         List<String> to = b.check("to", b.strList("to", null), MainApi::cleanAddresses);
@@ -1925,8 +1930,6 @@ public final class MainApi {
                         db.commit();
                         failed++;
                         errors.add(d.partner().name + " (#" + d.id + "): no active address");
-                        Alerts.alert("followup:" + d.id, "Follow-up to " + d.partner().name + " not sent",
-                                List.of(d.partner().name + " has no active, working address. Add one on the Partners page."));
                         continue;
                     }
                     LocalDateTime previous = d.lastFollowupAt;
@@ -1939,8 +1942,6 @@ public final class MainApi {
                     } catch (Exception exc) {
                         failed++;
                         errors.add(Py.cut(d.partner().name + " (#" + d.id + "): " + exc.getMessage(), 300));
-                        Alerts.alert("followup:" + d.id, "Automatic follow-up to " + d.partner().name + " failed",
-                                List.of("Subject: " + content[0], "Error: " + exc.getMessage()));
                     }
                 }
             }

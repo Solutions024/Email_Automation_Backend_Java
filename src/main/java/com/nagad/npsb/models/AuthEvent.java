@@ -24,4 +24,10 @@ public class AuthEvent extends Entity {
     public String ipAddress = "";
     public String userAgent = "";
     public LocalDateTime createdAt = Py.utcnow();
+
+    @Override
+    protected void afterCommit(boolean inserted) {
+        if (inserted) com.nagad.npsb.AppLog.event("AUTH", com.nagad.npsb.AppLog.kv("event", event, "user", username,
+                "ok", success, "ip", ipAddress, "detail", detail, "agent", userAgent));
+    }
 }
