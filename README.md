@@ -28,6 +28,18 @@ This makes one runnable jar: `target/npsb-backend.jar`.
 
 API docs: http://localhost:8000/docs (Swagger UI) and /openapi.json.
 
+## Docker
+
+    docker build -t npsb-backend .
+    docker run -p 8000:8000 --env-file .env npsb-backend
+
+Multi-stage build (Maven on Temurin 21, then a Temurin 21 JRE runtime) that follows the Container Image
+Build Security Standard (NGD-CTR-001): non-root user (uid 10001), no secrets in the image, `.dockerignore`
+for `.env` and keys, setuid/setgid bits removed, `HEALTHCHECK` on `/livez`. All settings come from
+environment variables at run time (see `.env.example`); the image sets `HOST=0.0.0.0`, `PORT=8000` and
+`APP_LOG_DIR=/app/logs` (mount a volume there to keep the log). Use `/startupz`, `/livez` and `/readyz`
+as Kubernetes probes.
+
 ## Tests
 
     mvn test

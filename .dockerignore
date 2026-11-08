@@ -1,0 +1,38 @@
+# CIB-13: keep secrets, VCS data and build output out of the build context.
+# Only pom.xml and src/ are needed to build the image.
+
+# secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.pfx
+*.crt
+
+# version control and editors
+.git
+.gitignore
+.github
+.vscode
+.idea
+*.iml
+
+# build output and local data
+target
+build
+coverage
+app/logs
+logs
+local-db
+sent_emails
+*.db
+*.mv.db
+*.trace.db
+*.log
+
+# docker files themselves
+Dockerfile
+.dockerignore
