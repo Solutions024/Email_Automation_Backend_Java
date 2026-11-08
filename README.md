@@ -13,6 +13,11 @@ source code and starts it together with its own MySQL database.
 
 Run every command below in PowerShell (Windows) or a terminal (macOS / Linux).
 
+> **Want the whole app (web interface + backend + MySQL)?** Follow the README of the frontend repository,
+> [Email_Automation_FrontEnd_Java](https://github.com/Solutions024/Email_Automation_FrontEnd_Java): it starts
+> all three with one `docker compose up -d --build`. The steps below start only the backend and its MySQL
+> (API on http://localhost:8000). Run only one of the two at a time: they use the same ports.
+
 ### Step 1 — Get the code (once)
 
 ```powershell
