@@ -59,7 +59,7 @@ Everyday commands (same folder):
 
 | What                                   | Command                                   |
 |----------------------------------------|-------------------------------------------|
-| Start in the background                | `docker compose up -d --build`            |
+| Start in the background                | `docker compose up -d --build & run`            |
 | Follow the backend log                 | `docker compose logs -f backend`          |
 | Show status (both should be `healthy`) | `docker compose ps`                       |
 | Restart after a code or `.env` change  | `docker compose up -d --build`            |
