@@ -74,6 +74,17 @@ Notes:
   `.env`. (Port 3306 is left free for a MySQL installed on the computer.)
 - Ports used: `8000` (backend) and `3307` (MySQL). Stop anything else on them first.
 
+### Alternative: `docker run` for the backend, with the MySQL container
+
+```powershell
+docker compose up -d mysql                       # once: the MySQL container (port 3307, password from .env)
+docker build -t npsb-backend .
+docker run --rm -p 8000:8000 --env-file .env -e HOST=0.0.0.0 -e DB_PORT=3307 npsb-backend
+```
+
+`DB_HOST=localhost` from `.env` is used as `host.docker.internal` inside the container, so this reaches the
+MySQL container through port 3307. Stop MySQL afterwards with `docker compose down`.
+
 ### Alternative: only the backend image, with the MySQL installed on the computer
 
 ```powershell
