@@ -50,6 +50,7 @@ public class DispatchViews {
         }
         return Py.map(
                 "id", d.getId(),
+                "case_id", d.getCaseId(),
                 "partner_name", groups.partnerOf(d).getName(),
                 "to", Py.splitOn(d.getToEmails(), ","),
                 "cc", Py.csv(d.getCcEmails()),

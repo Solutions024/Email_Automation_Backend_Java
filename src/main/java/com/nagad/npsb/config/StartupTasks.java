@@ -1,6 +1,7 @@
 package com.nagad.npsb.config;
 
 import com.nagad.npsb.service.AuthService;
+import com.nagad.npsb.service.CaseIds;
 import com.nagad.npsb.service.FollowupService;
 import com.nagad.npsb.service.Inbox;
 import com.nagad.npsb.service.Seed;
@@ -30,11 +31,12 @@ public class StartupTasks implements ApplicationRunner {
     private final AuthService authService;
     private final FollowupService followups;
     private final Inbox inbox;
+    private final CaseIds caseIds;
     /** npsb.jobs.enabled=false: no background jobs (the API tests start the backend that way). */
     private final boolean jobsEnabled;
 
     public StartupTasks(NpsbProperties properties, Seed seed, ServerSettings serverSettings, AuthService authService,
-                        FollowupService followups, Inbox inbox, @Value("${npsb.jobs.enabled:true}") boolean jobsEnabled) {
+                        FollowupService followups, Inbox inbox, CaseIds caseIds, @Value("${npsb.jobs.enabled:true}") boolean jobsEnabled) {
         this.jobsEnabled = jobsEnabled;
         this.properties = properties;
         this.seed = seed;
@@ -42,6 +44,7 @@ public class StartupTasks implements ApplicationRunner {
         this.authService = authService;
         this.followups = followups;
         this.inbox = inbox;
+        this.caseIds = caseIds;
     }
 
     @Override
@@ -53,6 +56,7 @@ public class StartupTasks implements ApplicationRunner {
         seed.seedTemplates();               // the standard email templates
         serverSettings.load();              // settings changed on the System Settings page
         authService.ensureBuiltInAdmin();   // the one admin that creates every account
+        caseIds.backfill();                 // case IDs for emails made before they existed
         if (jobsEnabled) {
             followups.start();              // automatic follow-ups
             inbox.start();                  // partner replies from the mailbox

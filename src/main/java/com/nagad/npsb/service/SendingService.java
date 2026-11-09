@@ -90,7 +90,7 @@ public class SendingService {
         Exception failure = null;
         try {
             result = emailService.sendEmail(Py.splitOn(d.getToEmails(), ","), Py.csv(d.getCcEmails()), d.getSubject(),
-                    d.getBodyHtml(), null, groups.attachmentFor(d), null);
+                    CaseIds.withHidden(d.getBodyHtml(), d.getCaseId()), null, groups.attachmentFor(d), null);  // + the invisible case ID
         } catch (EmailService.RecipientsRefused exc) {
             refusedAll = exc;
         } catch (Exception exc) {

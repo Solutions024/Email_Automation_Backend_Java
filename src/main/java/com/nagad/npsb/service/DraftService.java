@@ -18,6 +18,7 @@ import com.nagad.npsb.service.dispatch.Sql;
 import com.nagad.npsb.service.dispatch.TransactionGroups;
 import com.nagad.npsb.util.Py;
 import com.nagad.npsb.web.ApiException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -46,10 +47,12 @@ public class DraftService {
     private final EmailDispatchRepository dispatches;
     private final EmailEventRepository events;
     private final EmailTemplateRepository templates;
+    private final CaseIds caseIds;
 
     public DraftService(UploadService uploads, TemplateService templateService, TransactionGroups groups, DispatchViews views,
                         PartnerService partnerService, Settings settings, Sql sql, TransactionTemplate tx,
-                        EmailDispatchRepository dispatches, EmailEventRepository events, EmailTemplateRepository templates) {
+                        EmailDispatchRepository dispatches, EmailEventRepository events, EmailTemplateRepository templates,
+                        CaseIds caseIds) {
         this.uploads = uploads;
         this.templateService = templateService;
         this.groups = groups;
@@ -61,94 +64,102 @@ public class DraftService {
         this.dispatches = dispatches;
         this.events = events;
         this.templates = templates;
+        this.caseIds = caseIds;
     }
 
     /** Build (or rebuild) one email per partner and mail type. templates: the template chosen per mail type. */
     public Map<String, Object> prepareEmails(int uploadId, Map<String, Integer> chosenIds) {
         List<String> errors = new ArrayList<>();
         List<String> notices = new ArrayList<>();  // emails prepared, but some addresses were left out
-        tx.executeWithoutResult(status -> {
-            Upload upload = uploads.getUploadOr404(uploadId);
-            Map<String, Partner> partners = groups.partnersByName();
-            Map<String, EmailTemplate> chosen = new HashMap<>();
-            for (Map.Entry<String, Integer> e : chosenIds.entrySet()) {
-                EmailTemplate template = templates.findById(e.getValue()).orElse(null);
-                if (template == null || !template.getMailType().equals(e.getKey()) || !"initial".equals(template.getPurpose())) {
-                    throw new ApiException(400, "Pick a " + EmailService.MAIL_TYPES.get(e.getKey()) + " template (it may have been deleted).");
-                }
-                chosen.put(e.getKey(), template);
-            }
-
-            List<TemplateVariable> variables = templateService.templateVariables();
-            for (Map.Entry<List<String>, List<Transaction>> g : groups.groupByPartner(upload).entrySet()) {
-                String key = g.getKey().get(0), mailType = g.getKey().get(1);
-                List<Transaction> txns = g.getValue();
-                Partner partner = partners.get(key);
-
-                // --- checks: skip this partner but continue with the others
-                if (partner == null) {
-                    errors.add(txns.get(0).getPartnerName() + " – " + EmailService.MAIL_TYPES.get(mailType) + ": no partner with this name in "
-                            + "Partner Configuration. No email prepared.");
-                    continue;
-                }
-                String label = partner.getName() + " – " + EmailService.MAIL_TYPES.get(mailType);
-                if (!Boolean.TRUE.equals(partner.getIsActive())) {
-                    errors.add(label + ": partner is inactive. No email prepared.");
-                    continue;
-                }
-                List<PartnerEmail> active = new ArrayList<>();
-                for (PartnerEmail e : partnerService.emailsOf(partner)) if (Boolean.TRUE.equals(e.getIsActive())) active.add(e);
-                List<String> toList = new ArrayList<>(), problems = new ArrayList<>();
-                for (PartnerEmail e : active) {
-                    if (Py.isEmpty(e.getProblem())) toList.add(e.getEmail());
-                    else problems.add(e.getEmail() + " (" + e.getProblem() + ")");
-                }
-                if (active.isEmpty()) {
-                    errors.add(label + ": no active email address configured. No email prepared.");
-                    continue;
-                }
-                if (toList.isEmpty()) {
-                    errors.add(label + ": every active address failed before: " + String.join("; ", problems) + ". No email prepared.");
-                    continue;
+        try {
+            tx.executeWithoutResult(status -> {
+                Upload upload = uploads.getUploadOr404(uploadId);
+                Map<String, Partner> partners = groups.partnersByName();
+                Map<String, EmailTemplate> chosen = new HashMap<>();
+                for (Map.Entry<String, Integer> e : chosenIds.entrySet()) {
+                    EmailTemplate template = templates.findById(e.getValue()).orElse(null);
+                    if (template == null || !template.getMailType().equals(e.getKey()) || !"initial".equals(template.getPurpose())) {
+                        throw new ApiException(400, "Pick a " + EmailService.MAIL_TYPES.get(e.getKey()) + " template (it may have been deleted).");
+                    }
+                    chosen.put(e.getKey(), template);
                 }
 
-                EmailDispatch dispatch = sql.first(EmailDispatch.class, "WHERE t.upload_id = ? AND t.partner_id = ? AND t.mail_type = ?",
-                        upload.getId(), partner.getId(), mailType);
-                if (dispatch != null && !"PREPARED".equals(dispatch.getStatus())) continue;  // with an admin or already gone out: never rebuilt
+                List<TemplateVariable> variables = templateService.templateVariables();
+                for (Map.Entry<List<String>, List<Transaction>> g : groups.groupByPartner(upload).entrySet()) {
+                    String key = g.getKey().get(0), mailType = g.getKey().get(1);
+                    List<Transaction> txns = g.getValue();
+                    Partner partner = partners.get(key);
 
-                boolean isNew = dispatch == null;
-                if (isNew) {
-                    dispatch = new EmailDispatch();
-                    dispatch.setUploadId(upload.getId());
-                    dispatch.setPartnerId(partner.getId());
-                    dispatch.setMailType(mailType);
+                    // --- checks: skip this partner but continue with the others
+                    if (partner == null) {
+                        errors.add(txns.get(0).getPartnerName() + " – " + EmailService.MAIL_TYPES.get(mailType) + ": no partner with this name in "
+                                + "Partner Configuration. No email prepared.");
+                        continue;
+                    }
+                    String label = partner.getName() + " – " + EmailService.MAIL_TYPES.get(mailType);
+                    if (!Boolean.TRUE.equals(partner.getIsActive())) {
+                        errors.add(label + ": partner is inactive. No email prepared.");
+                        continue;
+                    }
+                    List<PartnerEmail> active = new ArrayList<>();
+                    for (PartnerEmail e : partnerService.emailsOf(partner)) if (Boolean.TRUE.equals(e.getIsActive())) active.add(e);
+                    List<String> toList = new ArrayList<>(), problems = new ArrayList<>();
+                    for (PartnerEmail e : active) {
+                        if (Py.isEmpty(e.getProblem())) toList.add(e.getEmail());
+                        else problems.add(e.getEmail() + " (" + e.getProblem() + ")");
+                    }
+                    if (active.isEmpty()) {
+                        errors.add(label + ": no active email address configured. No email prepared.");
+                        continue;
+                    }
+                    if (toList.isEmpty()) {
+                        errors.add(label + ": every active address failed before: " + String.join("; ", problems) + ". No email prepared.");
+                        continue;
+                    }
+
+                    EmailDispatch dispatch = sql.first(EmailDispatch.class, "WHERE t.upload_id = ? AND t.partner_id = ? AND t.mail_type = ?",
+                            upload.getId(), partner.getId(), mailType);
+                    if (dispatch != null && !"PREPARED".equals(dispatch.getStatus())) continue;  // with an admin or already gone out: never rebuilt
+
+                    boolean isNew = dispatch == null;
+                    if (isNew) {
+                        dispatch = new EmailDispatch();
+                        dispatch.setUploadId(upload.getId());
+                        dispatch.setPartnerId(partner.getId());
+                        dispatch.setMailType(mailType);
+                        // shown while composing; one prepare makes at most one email per partner and mail type
+                        dispatch.setCaseId(caseIds.next(Py.now().toLocalDate(), partner.getId(), mailType));
+                    }
+                    if (chosen.containsKey(mailType)) {
+                        dispatch.setTemplateId(chosen.get(mailType).getId());
+                        dispatch.setIsEdited(false);
+                    }
+                    if (!Boolean.TRUE.equals(dispatch.getIsEdited())) {  // keep the user's manual edits
+                        EmailTemplate template = templateService.templateFor(mailType, dispatch.getTemplateId());
+                        dispatch.setTemplateId(template != null ? template.getId() : null);
+                        String[] built = EmailService.buildEmail(partner.getName(), mailType, txns, template, variables);
+                        dispatch.setSubject(built[0]);
+                        dispatch.setBodyHtml(built[1]);
+                        dispatch.setIsEdited(false);
+                    }
+                    dispatch.setToEmails(String.join(",", toList));
+                    dispatch.setCcEmails(String.join(",", settings.getList("cc_emails")));
+                    dispatch.setTxnCount(txns.size());
+                    double total = 0;
+                    for (Transaction t : txns) total += Py.toDouble(t.getAmount());
+                    // the float total, stored in NUMERIC(14, 2) as MySQL rounds it
+                    dispatch.setTotalAmount(new BigDecimal(Py.floatRepr(total)).setScale(2, RoundingMode.HALF_UP));
+                    dispatch.setStatus("PREPARED");
+                    dispatch.setError(null);
+                    dispatch.setDeliveryIssues(null);
+                    if (isNew) dispatches.save(dispatch);  // db.add(dispatch): written with the commit, all fields set
+                    if (!problems.isEmpty()) notices.add(label + ": left out " + String.join("; ", problems) + ".");
                 }
-                if (chosen.containsKey(mailType)) {
-                    dispatch.setTemplateId(chosen.get(mailType).getId());
-                    dispatch.setIsEdited(false);
-                }
-                if (!Boolean.TRUE.equals(dispatch.getIsEdited())) {  // keep the user's manual edits
-                    EmailTemplate template = templateService.templateFor(mailType, dispatch.getTemplateId());
-                    dispatch.setTemplateId(template != null ? template.getId() : null);
-                    String[] built = EmailService.buildEmail(partner.getName(), mailType, txns, template, variables);
-                    dispatch.setSubject(built[0]);
-                    dispatch.setBodyHtml(built[1]);
-                    dispatch.setIsEdited(false);
-                }
-                dispatch.setToEmails(String.join(",", toList));
-                dispatch.setCcEmails(String.join(",", settings.getList("cc_emails")));
-                dispatch.setTxnCount(txns.size());
-                double total = 0;
-                for (Transaction t : txns) total += Py.toDouble(t.getAmount());
-                // the float total, stored in NUMERIC(14, 2) as MySQL rounds it
-                dispatch.setTotalAmount(new BigDecimal(Py.floatRepr(total)).setScale(2, RoundingMode.HALF_UP));
-                dispatch.setStatus("PREPARED");
-                dispatch.setError(null);
-                dispatch.setDeliveryIssues(null);
-                if (isNew) dispatches.save(dispatch);  // db.add(dispatch): written with the commit, all fields set
-                if (!problems.isEmpty()) notices.add(label + ": left out " + String.join("; ", problems) + ".");
-            }
-        });
+            });
+        } catch (DataIntegrityViolationException e) {
+            // rolled back: two people prepared emails for the same partner at the very same moment, one case ID clashed
+            throw new ApiException(409, "Someone else prepared emails for the same partner at the same moment. Prepare them again.");
+        }
         return Py.map("errors", errors, "notices", notices, "emails", listEmails(uploadId));
     }
 
@@ -203,7 +214,8 @@ public class DraftService {
                 List<Transaction> txns = groups.dispatchTransactions(d);
                 if (!txns.isEmpty()) {
                     EmailTemplate template = templateService.templateFor(d.getMailType(), d.getTemplateId());
-                    String[] built = EmailService.buildEmail(groups.partnerOf(d).getName(), d.getMailType(), txns, template, List.of());
+                    String[] built = EmailService.buildEmail(groups.partnerOf(d).getName(), d.getMailType(), txns, template,
+                            templateService.templateVariables());  // with the variables, as when prepared
                     d.setSubject(built[0]);
                     d.setBodyHtml(built[1]);
                 }
@@ -226,7 +238,8 @@ public class DraftService {
             List<Transaction> txns = groups.dispatchTransactions(d);
             if (txns.isEmpty()) throw new ApiException(400, "This email has no transactions to build it from.");
             d.setTemplateId(template.getId());
-            String[] built = EmailService.buildEmail(groups.partnerOf(d).getName(), d.getMailType(), txns, template, List.of());
+            String[] built = EmailService.buildEmail(groups.partnerOf(d).getName(), d.getMailType(), txns, template,
+                    templateService.templateVariables());  // with the variables, as when prepared
             d.setSubject(built[0]);
             d.setBodyHtml(built[1]);
             d.setIsEdited(false);

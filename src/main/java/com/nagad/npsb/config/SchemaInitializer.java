@@ -219,6 +219,7 @@ public final class SchemaInitializer {
             sent_by VARCHAR(30) NULL,
             sending_since DATETIME NULL,
             message_id VARCHAR(255) NULL,
+            case_id VARCHAR(40) NULL,
             reply_status VARCHAR(20) NOT NULL,
             reply_status_by VARCHAR(30) NULL,
             reply_status_at DATETIME NULL,
@@ -410,6 +411,7 @@ public final class SchemaInitializer {
         {"users", "updated_at", "DATETIME NULL"},
         {"users", "role", "VARCHAR(10) NOT NULL DEFAULT 'user'"},  // existing accounts become "user"
         {"email_dispatches", "template_id", "INT NULL"},
+        {"email_dispatches", "case_id", "VARCHAR(40) NULL"},
         {"email_events", "message_id", "VARCHAR(255) NULL"},
         {"email_events", "reply_id", "INT NULL"},
         {"email_replies", "partner_id", "INT NULL"},
@@ -532,6 +534,13 @@ public final class SchemaInitializer {
         if (!uniqueEmail) {
             try (Statement st = c.createStatement()) {
                 st.execute("CREATE UNIQUE INDEX ux_users_email ON users (email)");
+            }
+        }
+        // every email's case ID is unique (CaseIds)
+        boolean uniqueCase = indexes(c, "email_dispatches", true).values().stream().anyMatch(cols -> cols.equals(List.of("case_id")));
+        if (!uniqueCase) {
+            try (Statement st = c.createStatement()) {
+                st.execute("CREATE UNIQUE INDEX ux_email_dispatches_case_id ON email_dispatches (case_id)");
             }
         }
         dropRemovedColumns(c);

@@ -30,6 +30,7 @@ import java.util.regex.Pattern;
  *   <datetime>     an ISO-8601 date-time from the clock (2026-11-09T12:34:56, ...+00:00, ...Z)
  *   <clock-date>   today's / yesterday's / tomorrow's date (local or UTC) in the formats the app writes
  *   <time>         the time of day after a <clock-date> (export file names, quoted mails)
+ *   <clock-month>  this month (yyyyMM) at the start of a case ID (CaseIds: 202611 00 001 1 000 001)
  *   <n>            a computed wait (rate limit, lock-out) in a message
  *   <hash>         the /api/activity fingerprint
  *   <smtp-port>    the port of the test's fake mail server (a free port, different on every run)
@@ -47,10 +48,15 @@ final class Normalizer {
     private static final Pattern LOCKED_MINUTES = Pattern.compile("locked for \\d+ more minute");
     private static final Pattern HASH16 = Pattern.compile("[0-9a-f]{16}");
     private static final Pattern SIX_DIGITS = Pattern.compile("\\d{6}");
-    private static final Pattern CONNECTION_REFUSED = Pattern.compile("Connection refused(?:: [A-Za-z]+)?");
+    // "Connection refused: connect", "...: getsockopt", Windows: "...: no further information"
+    private static final Pattern CONNECTION_REFUSED = Pattern.compile("Connection refused(?:: [A-Za-z]+(?: [A-Za-z]+)*)?");
+    /** A case ID (CaseIds): yyyyMM + 00 + partner (3) + direction (1 / 2) + 000 + index (3). */
+    private static final Pattern CASE_ID = Pattern.compile("(?<![0-9])([0-9]{6})(00[0-9]{3}[12]000[0-9]{3})(?![0-9])");
 
     /** Formatted clock dates (longest first, so "09 Nov 2026" is replaced before a shorter format could match). */
     private final List<String> clockDates;
+    /** This month (and the next / previous one around midnight on the last / first day) as yyyyMM. */
+    private final Set<String> clockMonths = new LinkedHashSet<>();
     /** Exact values (e.g. a port) -> placeholder. */
     private final Map<Long, String> literals = new LinkedHashMap<>();
 
@@ -63,6 +69,7 @@ final class Normalizer {
         }
         Set<String> texts = new LinkedHashSet<>();
         for (LocalDate d : days) {
+            clockMonths.add(d.format(DateTimeFormatter.ofPattern("yyyyMM", Locale.ENGLISH)));
             for (String pattern : List.of("yyyy-MM-dd", "dd MMM yyyy", "dd-MM-yyyy", "dd/MM/yyyy")) {
                 texts.add(d.format(DateTimeFormatter.ofPattern(pattern, Locale.ENGLISH)));
             }
@@ -90,6 +97,8 @@ final class Normalizer {
         out = LOCKED_MINUTES.matcher(out).replaceAll("locked for <n> more minute");
         // the same failure is worded differently by each JDK and OS ("Connection refused", "...: connect", "...: getsockopt")
         out = CONNECTION_REFUSED.matcher(out).replaceAll("Connection refused");
+        out = CASE_ID.matcher(out).replaceAll(m -> Matcher.quoteReplacement(
+                (clockMonths.contains(m.group(1)) ? "<clock-month>" : m.group(1)) + m.group(2)));
         for (Map.Entry<Long, String> e : literals.entrySet()) {
             out = Pattern.compile("(?<![0-9])" + e.getKey() + "(?![0-9])").matcher(out).replaceAll(Matcher.quoteReplacement(e.getValue()));
         }

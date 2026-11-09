@@ -41,6 +41,28 @@ Dependency versions are in `gradle/libs.versions.toml` (Spring Boot manages most
 - Health probes (no sign-in): `/startupz`, `/livez`, `/readyz` (same answers as before) and Spring Boot's
   `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`.
 
+### Docker
+
+The `Dockerfile` builds the jar with the Gradle wrapper inside Docker (no local JDK needed) and runs it on a
+Java 21 JRE as a non-root user (NGD-CTR-001). All settings come from the environment at run time.
+
+    docker compose up -d --build     # this backend + its own MySQL (project "npsb-backend"), API on :8000
+    docker compose logs -f backend
+    docker compose down              # add -v to also delete the database
+
+`DB_PASSWORD` in `.env` must not be empty: it becomes the MySQL container's root password. MySQL Workbench from
+the computer: `127.0.0.1:3307`. For the whole app (frontend + backend + MySQL) use the `docker-compose.yml` in
+the frontend folder instead; run only one of the two stacks at a time (same ports).
+
+### Case IDs
+
+Every email to a partner gets a case ID when it is first prepared (`service/CaseIds`), e.g.
+`202611000031000001`: year and month, `00`, partner id (3 digits), `1` inward / `2` outward, `000`, and the
+partner's running number for that mail type in that month. It is shown in the app, searchable on Sent Mails,
+in the Excel exports, and sent as invisible text with every email (first email, follow-ups, answers). A reply
+whose headers don't link it to an email, but which quotes ours, is linked by that case ID (`matched_by =
+"case_id"`). Emails made before case IDs existed get one at startup.
+
 ### Configuration
 
 All settings are listed in `src/main/resources/application.yml` with their `.env` name and default

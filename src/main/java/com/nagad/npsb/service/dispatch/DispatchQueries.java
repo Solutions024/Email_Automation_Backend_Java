@@ -42,11 +42,11 @@ public class DispatchQueries {
         for (String word : words.subList(0, Math.min(words.size(), 10))) {
             String like = "%" + word.replace("%", "").replace("_", "") + "%";
             String names = "(SELECT username FROM users WHERE LOWER(full_name) LIKE LOWER(?))";
-            query = query.and("(LOWER(p.name) LIKE LOWER(?) OR LOWER(t.subject) LIKE LOWER(?) OR LOWER(t.to_emails) LIKE LOWER(?) "
+            query = query.and("(t.case_id LIKE ? OR LOWER(p.name) LIKE LOWER(?) OR LOWER(t.subject) LIKE LOWER(?) OR LOWER(t.to_emails) LIKE LOWER(?) "
                             + "OR LOWER(t.cc_emails) LIKE LOWER(?) OR LOWER(u.filename) LIKE LOWER(?) OR LOWER(t.submitted_by) LIKE LOWER(?) "
                             + "OR LOWER(t.sent_by) LIKE LOWER(?) OR LOWER(t.remarks) LIKE LOWER(?) OR t.submitted_by IN " + names
                             + " OR t.sent_by IN " + names + ")",
-                    like, like, like, like, like, like, like, like, like, like);
+                    like, like, like, like, like, like, like, like, like, like, like);
         }
         return query;
     }

@@ -1,0 +1,46 @@
+# CIB-13: keep secrets, VCS data and build output out of the build context.
+# Only the Gradle wrapper, the build scripts and src/main are needed to build the image.
+
+# secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.pfx
+*.crt
+
+# version control and editors
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+.claude
+*.iml
+
+# build output and local data
+.gradle
+build
+bin
+target
+coverage
+app/logs
+logs
+local-db
+sent_emails
+*.db
+*.mv.db
+*.trace.db
+*.log
+
+# tests are run outside the image build
+src/test
+
+# docker files themselves
+Dockerfile
+.dockerignore
+docker-compose.yml

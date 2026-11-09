@@ -311,7 +311,7 @@ public class AnswerService {
         String references = refs.isEmpty() ? null : String.join(" ", refs);
         EmailService.SendResult result;
         try {
-            result = emailService.sendEmail(to, cc, a.getSubject(), html, parent, null, references);
+            result = emailService.sendEmail(to, cc, a.getSubject(), CaseIds.withHidden(html, d.getCaseId()), parent, null, references);
         } catch (Exception exc) {
             String message = exc.getMessage() == null ? exc.toString() : exc.getMessage();
             tx.executeWithoutResult(status -> {

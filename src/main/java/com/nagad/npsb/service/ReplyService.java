@@ -115,7 +115,7 @@ public class ReplyService {
                 "kind", r.getKind(),
                 "review_reason", r.getReviewReason(), "suggested_email_id", r.getSuggestedDispatchId(),
                 "handled_by", r.getHandledBy(), "handled_at", Py.iso(r.getHandledAt()),
-                "email_id", d != null ? d.getId() : null, "partner_id", partnerId,
+                "email_id", d != null ? d.getId() : null, "case_id", d != null ? d.getCaseId() : null, "partner_id", partnerId,
                 "partner_name", partners.containsKey(partnerId) ? partners.get(partnerId) : "Unknown partner",
                 "mail_type", d != null ? d.getMailType() : null, "from_email", r.getFromEmail(), "from_name", r.getFromName(),
                 "subject", r.getSubject(), "snippet", r.getSnippet(), "matched_by", r.getMatchedBy(),

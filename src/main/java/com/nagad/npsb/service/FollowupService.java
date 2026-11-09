@@ -209,7 +209,7 @@ public class FollowupService {
         event.setCreatedBy(by);
         EmailService.SendResult result;
         try {
-            result = emailService.sendEmail(to, cc, subject, bodyHtml, d.getMessageId(), groups.attachmentFor(d), null);
+            result = emailService.sendEmail(to, cc, subject, CaseIds.withHidden(bodyHtml, d.getCaseId()), d.getMessageId(), groups.attachmentFor(d), null);
         } catch (RuntimeException exc) {
             tx.executeWithoutResult(status -> {
                 d.setLastFollowupAt(previous);  // nothing went out

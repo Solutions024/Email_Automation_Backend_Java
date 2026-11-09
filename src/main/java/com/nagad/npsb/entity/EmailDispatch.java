@@ -47,6 +47,7 @@ public class EmailDispatch {
     private LocalDateTime replyStatusAt;
     private Integer followupCount = 0;
     private LocalDateTime lastFollowupAt;
+    private String caseId;  // CaseIds: year, month, 00, partner, 1 inward / 2 outward, 000, index
     private String remarks;
     private String remarksBy;
     private LocalDateTime remarksAt;

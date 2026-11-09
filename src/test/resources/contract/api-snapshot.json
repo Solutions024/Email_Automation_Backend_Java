@@ -9511,6 +9511,7 @@
           "emails": [
             {
               "id": 1,
+              "case_id": "<clock-month>000011000001",
               "partner_name": "bKash",
               "to": [
                 "dispute@bkash.com",
@@ -9549,6 +9550,7 @@
             },
             {
               "id": 2,
+              "case_id": "<clock-month>000022000001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -9640,6 +9642,7 @@
         },
         "body": {
           "id": 2,
+          "case_id": "<clock-month>000022000001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -9760,6 +9763,7 @@
           "emails": [
             {
               "id": 1,
+              "case_id": "<clock-month>000011000001",
               "partner_name": "bKash",
               "to": [
                 "dispute@bkash.com",
@@ -9798,6 +9802,7 @@
             },
             {
               "id": 2,
+              "case_id": "<clock-month>000022000001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -9852,6 +9857,7 @@
         },
         "body": {
           "id": 2,
+          "case_id": "<clock-month>000022000001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -9913,6 +9919,7 @@
           "emails": [
             {
               "id": 1,
+              "case_id": "<clock-month>000011000001",
               "partner_name": "bKash",
               "to": [
                 "dispute@bkash.com",
@@ -9951,6 +9958,7 @@
             },
             {
               "id": 2,
+              "case_id": "<clock-month>000022000001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -10008,6 +10016,7 @@
         },
         "body": {
           "id": 2,
+          "case_id": "<clock-month>000022000001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -10129,6 +10138,7 @@
         "body": [
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -10167,6 +10177,7 @@
           },
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -10240,6 +10251,7 @@
           "emails": [
             {
               "id": 1,
+              "case_id": "<clock-month>000011000001",
               "partner_name": "bKash",
               "to": [
                 "dispute@bkash.com",
@@ -10278,6 +10290,7 @@
             },
             {
               "id": 2,
+              "case_id": "<clock-month>000022000001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -10408,6 +10421,7 @@
         },
         "body": {
           "id": 2,
+          "case_id": "<clock-month>000022000001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -10460,6 +10474,7 @@
         },
         "body": {
           "id": 2,
+          "case_id": "<clock-month>000022000001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -10513,6 +10528,7 @@
         "body": [
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -10551,6 +10567,7 @@
           },
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -10759,6 +10776,7 @@
           "emails": [
             {
               "id": 1,
+              "case_id": "<clock-month>000011000001",
               "partner_name": "bKash",
               "to": [
                 "dispute@bkash.com",
@@ -10797,6 +10815,7 @@
             },
             {
               "id": 2,
+              "case_id": "<clock-month>000022000001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -10852,6 +10871,7 @@
         "body": [
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -10890,6 +10910,7 @@
           },
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -12237,6 +12258,7 @@
           "emails": [
             {
               "id": 2,
+              "case_id": "<clock-month>000022000001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -12519,6 +12541,7 @@
         "body": [
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -12563,6 +12586,7 @@
           },
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -12665,6 +12689,7 @@
         "body": [
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -12703,6 +12728,7 @@
           },
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -12763,6 +12789,7 @@
         "body": [
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -12817,6 +12844,7 @@
         "body": [
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -12855,6 +12883,7 @@
           },
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -12915,6 +12944,7 @@
         "body": [
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -12975,6 +13005,7 @@
         "body": [
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -13013,6 +13044,7 @@
           },
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -13450,6 +13482,7 @@
         "body": {
           "email": {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -13704,6 +13737,7 @@
         "body": {
           "email": {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -13806,6 +13840,7 @@
         },
         "body": {
           "id": 1,
+          "case_id": "<clock-month>000011000001",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -13867,6 +13902,7 @@
         },
         "body": {
           "id": 1,
+          "case_id": "<clock-month>000011000001",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -14108,6 +14144,7 @@
         },
         "body": {
           "id": 1,
+          "case_id": "<clock-month>000011000001",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -14169,6 +14206,7 @@
         },
         "body": {
           "id": 1,
+          "case_id": "<clock-month>000011000001",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -14283,6 +14321,7 @@
         },
         "body": {
           "id": 2,
+          "case_id": "<clock-month>000022000001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -14338,6 +14377,7 @@
         },
         "body": {
           "id": 1,
+          "case_id": "<clock-month>000011000001",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -14842,6 +14882,7 @@
         "body": [
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -14886,6 +14927,7 @@
           },
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -14940,6 +14982,7 @@
         "body": [
           {
             "id": 2,
+            "case_id": "<clock-month>000022000001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -14994,6 +15037,7 @@
         "body": [
           {
             "id": 1,
+            "case_id": "<clock-month>000011000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -15604,6 +15648,7 @@
           "emails": [
             {
               "id": 3,
+              "case_id": "<clock-month>000012000001",
               "partner_name": "bKash",
               "to": [
                 "dispute@bkash.com"
@@ -15715,6 +15760,7 @@
         "body": [
           {
             "id": 3,
+            "case_id": "<clock-month>000012000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -15773,6 +15819,7 @@
           "emails": [
             {
               "id": 3,
+              "case_id": "<clock-month>000012000001",
               "partner_name": "bKash",
               "to": [
                 "dispute@bkash.com",
@@ -15830,6 +15877,7 @@
         "body": [
           {
             "id": 3,
+            "case_id": "<clock-month>000012000001",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
