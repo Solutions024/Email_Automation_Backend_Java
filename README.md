@@ -7,11 +7,17 @@ the Python version stay valid (same hashing, token and encryption formats).
 
 ## Build
 
-Needs JDK 17+ and Maven 3.8+.
+Needs JDK 17+. Gradle itself comes with the project (the wrapper downloads it on first use).
 
-    mvn package
+    ./gradlew build          # Windows: gradlew.bat build
 
-This makes one runnable jar: `target/npsb-backend.jar`.
+This runs the tests and makes one runnable jar: `build/libs/npsb-backend.jar`
+(`./gradlew shadowJar` makes only the jar, without running the tests).
+
+While developing, `./gradlew run` starts the API straight from the sources (same `.env`);
+pass arguments with `--args`, e.g. `./gradlew run --args="--port 8001"`.
+
+Dependency versions are in `gradle/libs.versions.toml`, the build in `build.gradle.kts`.
 
 ## Run
 
@@ -23,18 +29,18 @@ This makes one runnable jar: `target/npsb-backend.jar`.
    databases get missing columns added, exactly like the Python version did.
 3. Start the API:
 
-       java -jar target/npsb-backend.jar                  # host/port from .env (default 127.0.0.1:8000)
-       java -jar target/npsb-backend.jar --port 8000 --host 0.0.0.0
+       java -jar build/libs/npsb-backend.jar                  # host/port from .env (default 127.0.0.1:8000)
+       java -jar build/libs/npsb-backend.jar --port 8000 --host 0.0.0.0
 
 API docs: http://localhost:8000/docs (Swagger UI) and /openapi.json.
 
 ## Tests
 
-    mvn test
+    ./gradlew test
 
 JUnit 5 tests in `src/test/java`: unit tests (upload parsing, the application log) and API tests that
 start the real backend (routes, sign-in, SQL) on a free port against an **in-memory H2 database**.
-They never touch MySQL or send mail: `pom.xml` (surefire) gives them their own settings and
+They never touch MySQL or send mail: the `test` task in `build.gradle.kts` gives them their own settings and
 `NPSB_ENV_FILE=none`, so your `.env` is not read. Covered: health probes, sign-in, no self sign-up,
 built-in admin only managing accounts, setting a password, forgot-password code, the RRN check
 across uploads, upload type and size limits, approvals and partner changes.
@@ -42,11 +48,11 @@ across uploads, upload type and size limits, approvals and partner changes.
 ## Tools (same as the Python scripts)
 
     # local test mail server on localhost:1025, saves every email to sent_emails/*.html
-    java -jar target/npsb-backend.jar test-mail-server
+    java -jar build/libs/npsb-backend.jar test-mail-server
 
     # when mail is broken and nobody can get a sign-in code:
-    java -jar target/npsb-backend.jar recover mail             # show / fix the mail settings
-    java -jar target/npsb-backend.jar recover code USERNAME    # one-time sign-in code made on the server
+    java -jar build/libs/npsb-backend.jar recover mail             # show / fix the mail settings
+    java -jar build/libs/npsb-backend.jar recover code USERNAME    # one-time sign-in code made on the server
 
 ## What maps to what
 

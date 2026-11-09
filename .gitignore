@@ -3,7 +3,9 @@
 .env.*
 !.env.example
 
-# build output
+# build output (Gradle; target/ is left over from the old Maven build)
+.gradle/
+build/
 target/
 
 # application log (AppLog): stays on the server

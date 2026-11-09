@@ -29,7 +29,7 @@ import java.util.Properties;
  * A fake SMTP server for testing. No email leaves your computer.
  *
  * Run it in its own terminal (from the backend folder):
- *     java -jar target/npsb-dispute-backend.jar test-mail-server
+ *     java -jar build/libs/npsb-backend.jar test-mail-server
  *
  * Any recipient address that starts with "bad" (e.g. bad1@gmail.com) is refused with
  * "550 5.1.1 ... does not exist", like a real server does for an unknown mailbox. Use it to check that

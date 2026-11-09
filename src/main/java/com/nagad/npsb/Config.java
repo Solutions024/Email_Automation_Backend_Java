@@ -48,8 +48,8 @@ public final class Config {
     }
 
     /**
-     * The backend folder (where pom.xml and .env are), wherever the server is started from: from the compiled
-     * classes (backend/target/classes) or the jar upwards, else the working folder.
+     * The backend folder (where build.gradle.kts and .env are), wherever the server is started from: from the
+     * compiled classes (backend/build/classes/java/main) or the jar (backend/build/libs) upwards, else the jar's folder.
      */
     public static final Path BACKEND_DIR = findBackendDir();
 
@@ -57,7 +57,7 @@ public final class Config {
         try {
             Path code = Paths.get(Config.class.getProtectionDomain().getCodeSource().getLocation().toURI());
             for (Path dir = Files.isDirectory(code) ? code : code.getParent(); dir != null; dir = dir.getParent()) {
-                if (Files.isRegularFile(dir.resolve("pom.xml"))) return dir;
+                if (Files.isRegularFile(dir.resolve("build.gradle.kts"))) return dir;
             }
             return Files.isDirectory(code) ? code : code.getParent();
         } catch (Exception e) {
