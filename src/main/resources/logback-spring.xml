@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logging (SLF4J + Logback): the console, and the application log file on the server (never shown in the portal).
+  APP_LOG_DIR (default backend/app/logs): app.0.log is the newest; at 10 MB it rolls over and 20 files are kept.
+  Tagged event lines ([AUTH], [UPLOAD], [EMAIL], [REPLY], [CHANGE], [HTTP]) come from AppLog; export them to
+  CSV / JSON with: java -cp build/libs/npsb-backend.jar -Dloader.main=com.nagad.npsb.util.AppLog org.springframework.boot.loader.launch.PropertiesLauncher
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <springProperty scope="context" name="APP_LOG_DIR" source="npsb.app-log-dir" defaultValue="app/logs"/>
+
+    <appender name="APP_LOG" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${APP_LOG_DIR}/app.0.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-7level [%thread] %msg%n%ex</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${APP_LOG_DIR}/app.%i.log</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>19</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>10MB</maxFileSize>
+        </triggeringPolicy>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="APP_LOG"/>
+    </root>
+</configuration>

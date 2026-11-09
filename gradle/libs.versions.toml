@@ -1,37 +1,37 @@
 [versions]
-tomcat = "10.1.31"
-jackson = "2.17.2"
-hikaricp = "5.1.0"
-mysql = "8.4.0"
-h2 = "2.2.224"
-slf4j = "2.0.13"
-jakarta-mail = "2.0.1"
+spring-boot = "4.1.2"
+spring-dependency-management = "1.1.7"
+springdoc = "3.2.0"
 poi = "5.3.0"
 jsoup = "1.18.1"
-junit = "5.11.4"
-shadow = "9.6.1"
 
 [libraries]
-# HTTP server (embedded, no external Tomcat needed)
-tomcat-embed-core = { module = "org.apache.tomcat.embed:tomcat-embed-core", version.ref = "tomcat" }
-# JSON
-jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
-# Database: connection pool + MySQL driver (H2 for the tests)
-hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikaricp" }
-mysql-connector = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
-h2 = { module = "com.h2database:h2", version.ref = "h2" }
-slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
-# Mail: SMTP sending and IMAP reading
-jakarta-mail = { module = "com.sun.mail:jakarta.mail", version.ref = "jakarta-mail" }
+# Spring Boot starters (versions come from the Spring Boot BOM)
+spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
+spring-boot-starter-data-jpa = { module = "org.springframework.boot:spring-boot-starter-data-jpa" }
+spring-boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation" }
+spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security" }
+spring-boot-starter-mail = { module = "org.springframework.boot:spring-boot-starter-mail" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+spring-boot-configuration-processor = { module = "org.springframework.boot:spring-boot-configuration-processor" }
+# Jakarta Mail implementation (IMAPFolder, SMTPTransport, SMTPAddressFailedException; version from the Spring Boot BOM)
+angus-mail = { module = "org.eclipse.angus:angus-mail" }
+# Database drivers (versions from the Spring Boot BOM)
+mysql-connector = { module = "com.mysql:mysql-connector-j" }
+h2 = { module = "com.h2database:h2" }
+# Boilerplate (getters/setters/constructors)
+lombok = { module = "org.projectlombok:lombok" }
+# OpenAPI / Swagger UI
+springdoc-openapi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
 # Excel files
 poi-ooxml = { module = "org.apache.poi:poi-ooxml", version.ref = "poi" }
 # HTML entity decoding (partner replies)
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
-# Tests: JUnit 5
-junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
-junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+# Jackson 2, only for the HTTP contract test's JSON trees (the app uses Jackson 3; version from the Spring Boot BOM)
+jackson2-databind = { module = "com.fasterxml.jackson.core:jackson-databind" }
 
 [plugins]
-# one runnable jar with all dependencies (replaces maven-shade-plugin)
-shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }

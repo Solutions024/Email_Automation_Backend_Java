@@ -59,9 +59,9 @@
         "path": "/docs"
       },
       "response": {
-        "status": 200,
+        "status": 302,
         "headers": {
-          "Content-Type": "text/html;charset=utf-8"
+          "Location": "/swagger-ui/index.html"
         },
         "body": "<ignored>"
       }
@@ -233,7 +233,7 @@
         "status": 405,
         "headers": {
           "Content-Type": "application/json",
-          "Allow": "PATCH, GET"
+          "Allow": "GET, PATCH"
         },
         "body": {
           "detail": "Method Not Allowed"

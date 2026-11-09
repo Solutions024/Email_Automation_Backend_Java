@@ -1,10 +1,11 @@
 package com.nagad.npsb.service;
 
-import com.nagad.npsb.Config;
-import com.nagad.npsb.Py;
-import com.nagad.npsb.models.EmailTemplate;
-import com.nagad.npsb.models.TemplateVariable;
-import com.nagad.npsb.models.Transaction;
+import com.nagad.npsb.config.LiveSettings;
+import com.nagad.npsb.entity.EmailTemplate;
+import com.nagad.npsb.entity.TemplateVariable;
+import com.nagad.npsb.entity.Transaction;
+import com.nagad.npsb.util.Crypto;
+import com.nagad.npsb.util.Py;
 import jakarta.activation.DataHandler;
 import jakarta.mail.AuthenticationFailedException;
 import jakarta.mail.Message;
@@ -17,8 +18,10 @@ import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
 import jakarta.mail.util.ByteArrayDataSource;
-import com.sun.mail.smtp.SMTPAddressFailedException;
-import com.sun.mail.smtp.SMTPTransport;
+import org.eclipse.angus.mail.smtp.SMTPAddressFailedException;
+import org.eclipse.angus.mail.smtp.SMTPTransport;
+import org.eclipse.angus.mail.util.MailConnectException;
+import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
@@ -36,9 +39,19 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Email templates, building the emails, and sending them (Gmail or another SMTP server). */
-public final class EmailService {
-    private EmailService() {}
+/**
+ * Email templates, building the emails, and sending them (Gmail or another SMTP server).
+ * The mail server settings are read from LiveSettings at every send, so a change on the System Settings page
+ * applies at once.
+ */
+@Service
+public class EmailService {
+
+    private final LiveSettings live;
+
+    public EmailService(LiveSettings live) {
+        this.live = live;
+    }
 
     static {
         System.setProperty("mail.mime.decodefilename", "true");
@@ -77,7 +90,7 @@ public final class EmailService {
     }
 
     private static LocalDate dateOf(Transaction t) {
-        return t.approvalDate != null ? t.approvalDate : t.txnDatetime.toLocalDate();
+        return t.getApprovalDate() != null ? t.getApprovalDate() : t.getTxnDatetime().toLocalDate();
     }
 
     /** '02 Sep 2026', or '02 Sep 2026 to 04 Sep 2026' when the transactions span several days. */
@@ -110,16 +123,16 @@ public final class EmailService {
     public static final Map<String, Function<Transaction, Object>> VARIABLE_COLUMNS = new LinkedHashMap<>();
     public static final Map<String, String> VARIABLE_AGGREGATES = new LinkedHashMap<>();
     static {
-        VARIABLE_COLUMNS.put("NPSB_TXN_RRN", t -> t.rrn);
-        VARIABLE_COLUMNS.put("TXN_ID", t -> t.txnId);
-        VARIABLE_COLUMNS.put("ORG_TXN_STAN", t -> t.stan);
-        VARIABLE_COLUMNS.put("TXN_TYPE", t -> t.txnType);
-        VARIABLE_COLUMNS.put("FIRST_TXN_STATUS_NAME", t -> t.status);
-        VARIABLE_COLUMNS.put("TXN_AMOUNT", t -> t.amount);
-        VARIABLE_COLUMNS.put("FROMAC_NAME", t -> t.fromAccountName);
-        VARIABLE_COLUMNS.put("TOAC_TYPE", t -> t.toAccountType);
-        VARIABLE_COLUMNS.put("NPSB_ORG_CODE", t -> t.orgCode);
-        VARIABLE_COLUMNS.put("APPROVAL_DATE", t -> t.approvalDate);
+        VARIABLE_COLUMNS.put("NPSB_TXN_RRN", t -> t.getRrn());
+        VARIABLE_COLUMNS.put("TXN_ID", t -> t.getTxnId());
+        VARIABLE_COLUMNS.put("ORG_TXN_STAN", t -> t.getStan());
+        VARIABLE_COLUMNS.put("TXN_TYPE", t -> t.getTxnType());
+        VARIABLE_COLUMNS.put("FIRST_TXN_STATUS_NAME", t -> t.getStatus());
+        VARIABLE_COLUMNS.put("TXN_AMOUNT", t -> t.getAmount());
+        VARIABLE_COLUMNS.put("FROMAC_NAME", t -> t.getFromAccountName());
+        VARIABLE_COLUMNS.put("TOAC_TYPE", t -> t.getToAccountType());
+        VARIABLE_COLUMNS.put("NPSB_ORG_CODE", t -> t.getOrgCode());
+        VARIABLE_COLUMNS.put("APPROVAL_DATE", t -> t.getApprovalDate());
         VARIABLE_AGGREGATES.put("list", "All different values, comma separated");
         VARIABLE_AGGREGATES.put("first", "The first value");
         VARIABLE_AGGREGATES.put("count", "How many different values");
@@ -136,15 +149,15 @@ public final class EmailService {
 
     /** The text a declared template variable stands for in one email. */
     public static String variableValue(TemplateVariable variable, List<Transaction> transactions) {
-        if ("text".equals(variable.source)) return variable.value == null ? "" : variable.value;
-        Function<Transaction, Object> attribute = VARIABLE_COLUMNS.get(variable.column == null ? "" : variable.column);
+        if ("text".equals(variable.getSource())) return variable.getValue() == null ? "" : variable.getValue();
+        Function<Transaction, Object> attribute = VARIABLE_COLUMNS.get(variable.getColumn() == null ? "" : variable.getColumn());
         if (attribute == null) return "";
         List<Object> values = new ArrayList<>();
         for (Transaction t : transactions) {
             Object v = attribute.apply(t);
             if (v != null && !Py.strip(pyStr(v)).isEmpty()) values.add(v);
         }
-        if ("sum".equals(variable.aggregate)) {
+        if ("sum".equals(variable.getAggregate())) {
             double total = 0.0;
             for (Object v : values) {
                 try {
@@ -158,8 +171,8 @@ public final class EmailService {
         List<String> texts = new ArrayList<>();
         for (Object v : values) texts.add(v instanceof LocalDate d ? Py.strftime(d, "%d-%m-%Y") : pyStr(v));
         texts = Py.unique(texts);
-        if ("first".equals(variable.aggregate)) return texts.isEmpty() ? "" : texts.get(0);
-        if ("count".equals(variable.aggregate)) return String.valueOf(texts.size());
+        if ("first".equals(variable.getAggregate())) return texts.isEmpty() ? "" : texts.get(0);
+        if ("count".equals(variable.getAggregate())) return String.valueOf(texts.size());
         return String.join(", ", texts);
     }
 
@@ -229,7 +242,7 @@ public final class EmailService {
         Map<String, String> values = new LinkedHashMap<>();
         if (extra != null) values.putAll(extra);
         double total = 0;
-        for (Transaction t : transactions) total += Py.toDouble(t.amount);
+        for (Transaction t : transactions) total += Py.toDouble(t.getAmount());
         values.put("partner_name", partnerName);
         values.put("date", dateText(transactions));
         values.put("txn_count", String.valueOf(transactions.size()));
@@ -255,7 +268,7 @@ public final class EmailService {
 
     private static Map<String, String> variableValues(List<TemplateVariable> variables, List<Transaction> transactions) {
         Map<String, String> extra = new LinkedHashMap<>();
-        if (variables != null) for (TemplateVariable v : variables) extra.put(v.name, variableValue(v, transactions));
+        if (variables != null) for (TemplateVariable v : variables) extra.put(v.getName(), variableValue(v, transactions));
         return extra;
     }
 
@@ -267,8 +280,8 @@ public final class EmailService {
                                       EmailTemplate template, List<TemplateVariable> variables) {
         String subject, bodyHtml;
         if (template != null) {
-            subject = template.subject;
-            bodyHtml = template.bodyHtml;
+            subject = template.getSubject();
+            bodyHtml = template.getBodyHtml();
         } else {
             DefaultTemplate t = DEFAULT_TEMPLATES.get("inward".equals(mailType) ? "inward" : "outward");
             subject = t.subject();
@@ -285,16 +298,16 @@ public final class EmailService {
     /** The transactions of one email as an Excel file (the attachment), in the upload file's format. */
     public static byte[] transactionsXlsx(List<Transaction> transactions) {
         List<Transaction> sorted = new ArrayList<>(transactions);
-        sorted.sort(Comparator.comparing(t -> t.txnDatetime));
+        sorted.sort(Comparator.comparing(t -> t.getTxnDatetime()));
         List<List<Object>> rows = new ArrayList<>();
         for (Transaction t : sorted) {
             rows.add(java.util.Arrays.asList(
-                    t.rrn,
-                    t.approvalDate,  // a real date cell, as in the uploaded file
-                    t.approvalDatetimeText != null && !t.approvalDatetimeText.isEmpty() ? t.approvalDatetimeText
-                            : Py.strftime(t.txnDatetime, "%d-%b-%y %I.%M.%S.%f %p").toUpperCase(java.util.Locale.ROOT),
-                    t.txnType, Py.or(t.txnId, ""), t.status, Py.toDouble(t.amount), Py.or(t.fromAccountName, ""),
-                    Py.or(t.toAccountType, ""), t.stan, t.partnerName, t.orgCode, Py.capitalize(Py.or(t.mailType, ""))));
+                    t.getRrn(),
+                    t.getApprovalDate(),  // a real date cell, as in the uploaded file
+                    t.getApprovalDatetimeText() != null && !t.getApprovalDatetimeText().isEmpty() ? t.getApprovalDatetimeText()
+                            : Py.strftime(t.getTxnDatetime(), "%d-%b-%y %I.%M.%S.%f %p").toUpperCase(java.util.Locale.ROOT),
+                    t.getTxnType(), Py.or(t.getTxnId(), ""), t.getStatus(), Py.toDouble(t.getAmount()), Py.or(t.getFromAccountName(), ""),
+                    Py.or(t.getToAccountType(), ""), t.getStan(), t.getPartnerName(), t.getOrgCode(), Py.capitalize(Py.or(t.getMailType(), ""))));
         }
         return Xlsx.write(ATTACHMENT_COLUMNS, rows, ExcelParser.SHEET_NAME);
     }
@@ -328,7 +341,7 @@ public final class EmailService {
             Map<String, String> extra = variableValues(variables, transactions);
             extra.put("sent_date", sentOn);
             extra.put("followup_number", String.valueOf(number));
-            return renderTemplate(template.subject, template.bodyHtml, partnerName, mailType, transactions, extra);
+            return renderTemplate(template.getSubject(), template.getBodyHtml(), partnerName, mailType, transactions, extra);
         }
         String summary = "<b>" + txnCount + "</b> transaction(s) totalling <b>BDT " + Py.money(total) + "</b>";
         String text;
@@ -404,7 +417,7 @@ public final class EmailService {
     static String makeMsgid(String domain) {
         long stamp = System.currentTimeMillis() / 10;
         long pid = ProcessHandle.current().pid();
-        String random = Long.toUnsignedString(com.nagad.npsb.Crypto.RANDOM.nextLong());
+        String random = Long.toUnsignedString(Crypto.RANDOM.nextLong());
         if (domain == null || domain.isEmpty()) {
             try {
                 domain = java.net.InetAddress.getLocalHost().getCanonicalHostName();
@@ -415,9 +428,9 @@ public final class EmailService {
         return "<" + stamp + "." + pid + "." + random + "@" + domain + ">";
     }
 
-    static MimeMessage buildMessage(Session session, List<String> to, List<String> cc, String subject, String htmlBody,
-                                    String inReplyTo, List<Attachment> attachments, String references) throws MessagingException {
-        String sender = Config.mailFrom();
+    MimeMessage buildMessage(Session session, List<String> to, List<String> cc, String subject, String htmlBody,
+                             String inReplyTo, List<Attachment> attachments, String references) throws MessagingException {
+        String sender = live.mailFrom();
         String domain = sender.contains("@") ? sender.substring(sender.lastIndexOf('@') + 1) : sender;
         MimeMessage msg = new Built(session, makeMsgid(domain));
         msg.setFrom(new InternetAddress(sender, false));
@@ -516,15 +529,15 @@ public final class EmailService {
      * Retries on temporary errors (e.g. server down); throws RecipientsRefused when every recipient is refused, and
      * RuntimeException on any other final failure.
      */
-    public static SendResult sendEmail(List<String> to, List<String> cc, String subject, String htmlBody, String inReplyTo,
-                                       List<Attachment> attachments, String references) {
-        if (Config.gmail() && (Config.SMTP_USER().isEmpty() || Config.SMTP_PASSWORD().isEmpty())) {
+    public SendResult sendEmail(List<String> to, List<String> cc, String subject, String htmlBody, String inReplyTo,
+                                List<Attachment> attachments, String references) {
+        if (live.gmail() && (live.smtpUser().isEmpty() || live.smtpPassword().isEmpty())) {
             throw new RuntimeException("Gmail is not set up yet: fill in the Gmail address and app password on the System Settings page.");
         }
 
-        int maxAttempts = Config.SMTP_MAX_ATTEMPTS();
-        String host = Config.SMTP_HOST(), user = Config.SMTP_USER();
-        Session session = smtpSession(host, Config.SMTP_PORT(), Config.SMTP_USE_TLS(), user);
+        int maxAttempts = live.smtpMaxAttempts();
+        String host = live.smtpHost(), user = live.smtpUser();
+        Session session = smtpSession(host, live.smtpPort(), live.smtpUseTls(), user);
         MimeMessage msg;
         try {
             msg = buildMessage(session, to, cc, subject, htmlBody, inReplyTo, attachments, references);
@@ -534,7 +547,7 @@ public final class EmailService {
         Exception lastError = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try (Transport transport = session.getTransport("smtp")) {
-                transport.connect(host, Config.SMTP_PORT(), user.isEmpty() ? null : user, user.isEmpty() ? null : Config.SMTP_PASSWORD());
+                transport.connect(host, live.smtpPort(), user.isEmpty() ? null : user, user.isEmpty() ? null : live.smtpPassword());
                 if (!user.isEmpty() && transport instanceof SMTPTransport smtp && !smtp.supportsExtension("AUTH")) {
                     throw new MessagingException("SMTP AUTH extension not supported by server.");
                 }
@@ -557,7 +570,7 @@ public final class EmailService {
                 lastError = e;
                 if (attempt < maxAttempts) {
                     try {
-                        Thread.sleep(Config.SMTP_RETRY_SECONDS() * 1000L);
+                        Thread.sleep(live.smtpRetrySeconds() * 1000L);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                     }
@@ -596,7 +609,7 @@ public final class EmailService {
             }
         } catch (RuntimeException e) {
             throw e;
-        } catch (com.sun.mail.util.MailConnectException e) {
+        } catch (MailConnectException e) {
             throw new RuntimeException("Could not reach the mail server " + host + ":" + port + ": "
                     + (e.getCause() != null ? text(e.getCause()) : text(e)));
         } catch (MessagingException e) {

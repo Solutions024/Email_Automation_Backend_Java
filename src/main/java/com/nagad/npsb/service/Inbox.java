@@ -1,14 +1,21 @@
 package com.nagad.npsb.service;
 
-import com.nagad.npsb.Config;
-import com.nagad.npsb.Py;
-import com.nagad.npsb.db.Db;
-import com.nagad.npsb.models.EmailDispatch;
-import com.nagad.npsb.models.EmailEvent;
-import com.nagad.npsb.models.EmailReply;
-import com.nagad.npsb.models.EmailReplyAttachment;
-import com.nagad.npsb.models.InboxIssue;
-import com.nagad.npsb.models.InboxState;
+import com.nagad.npsb.config.LiveSettings;
+import com.nagad.npsb.entity.EmailDispatch;
+import com.nagad.npsb.entity.EmailEvent;
+import com.nagad.npsb.entity.EmailReply;
+import com.nagad.npsb.entity.EmailReplyAttachment;
+import com.nagad.npsb.entity.InboxIssue;
+import com.nagad.npsb.entity.InboxState;
+import com.nagad.npsb.repository.EmailDispatchRepository;
+import com.nagad.npsb.repository.EmailEventRepository;
+import com.nagad.npsb.repository.EmailReplyAttachmentRepository;
+import com.nagad.npsb.repository.EmailReplyRepository;
+import com.nagad.npsb.repository.InboxIssueRepository;
+import com.nagad.npsb.repository.InboxStateRepository;
+import com.nagad.npsb.service.support.SqlRows;
+import com.nagad.npsb.util.Py;
+import jakarta.annotation.PreDestroy;
 import jakarta.mail.Address;
 import jakarta.mail.AuthenticationFailedException;
 import jakarta.mail.FetchProfile;
@@ -30,8 +37,18 @@ import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeUtility;
 import jakarta.mail.search.ComparisonTerm;
 import jakarta.mail.search.ReceivedDateTerm;
-import com.sun.mail.imap.IMAPFolder;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import org.eclipse.angus.mail.imap.IMAPFolder;
 import org.jsoup.parser.Parser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -39,6 +56,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -51,10 +69,11 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -77,11 +96,13 @@ import java.util.regex.Pattern;
  * Each check only looks at messages that arrived since the last one (inbox_state). The first check looks back
  * to the oldest sent email, at most INBOX_FIRST_SCAN_DAYS days. The mailbox settings are read at every check, so
  * a change on the System Settings page applies at once.
+ *
+ * The background check runs on the TaskScheduler (start / wake / stop); each message (and each other change to the
+ * database) is stored in a transaction of its own.
  */
-public final class Inbox {
-    private Inbox() {}
-
-    private static final Logger LOG = Logger.getLogger("npsb");
+@Service
+public class Inbox {
+    private static final Logger LOG = LoggerFactory.getLogger("npsb");
 
     /** created_by of the history entries added when a reply is found ("#" is not allowed in usernames) */
     public static final String INBOX_USER = "#inbox";
@@ -96,44 +117,79 @@ public final class Inbox {
     public static final String REPLY = "reply", AUTO_REPLY = "auto_reply", BOUNCE = "bounce", PARTNER_MAIL = "partner_mail";
     public static final String REVIEW = "review", DISMISSED = "dismissed";
 
-    private static final ReentrantLock LOCK = new ReentrantLock();  // one check at a time ("Check now" while the timer runs)
-    private static volatile boolean stopped = false;
-    private static final Object WAKE = new Object();
-    private static boolean woken = false;
-    public static final Map<String, Object> STATUS = java.util.Collections.synchronizedMap(new LinkedHashMap<>());
-    static {
-        STATUS.put("last_run_at", null);
-        STATUS.put("last_ok_at", null);
-        STATUS.put("last_error", null);
-        STATUS.put("last_found", 0);
-        STATUS.put("next_run_at", null);
+    private final ReentrantLock lock = new ReentrantLock();  // one check at a time ("Check now" while the timer runs)
+    /** What the last checks did (shown on the Email Configuration page). */
+    private final Map<String, Object> status = java.util.Collections.synchronizedMap(new LinkedHashMap<>());
+
+    // the background check (guarded by `schedule`)
+    private final Object schedule = new Object();
+    private ScheduledFuture<?> next;
+    private boolean started, running, woken;
+    private volatile boolean stopped = false;
+
+    private final LiveSettings live;
+    private final JdbcClient jdbc;
+    private final EntityManager entityManager;
+    private final EntityManagerFactory entityManagerFactory;
+    private final TransactionTemplate transactionTemplate;
+    private final TaskScheduler taskScheduler;
+    private final Delivery delivery;
+    private final EmailDispatchRepository dispatches;
+    private final EmailEventRepository events;
+    private final EmailReplyRepository replies;
+    private final EmailReplyAttachmentRepository attachments;
+    private final InboxIssueRepository issues;
+    private final InboxStateRepository states;
+
+    public Inbox(LiveSettings live, JdbcClient jdbc, EntityManager entityManager, EntityManagerFactory entityManagerFactory,
+                 TransactionTemplate transactionTemplate, TaskScheduler taskScheduler, Delivery delivery,
+                 EmailDispatchRepository dispatches, EmailEventRepository events, EmailReplyRepository replies,
+                 EmailReplyAttachmentRepository attachments, InboxIssueRepository issues, InboxStateRepository states) {
+        this.live = live;
+        this.jdbc = jdbc;
+        this.entityManager = entityManager;
+        this.entityManagerFactory = entityManagerFactory;
+        this.transactionTemplate = transactionTemplate;
+        this.taskScheduler = taskScheduler;
+        this.delivery = delivery;
+        this.dispatches = dispatches;
+        this.events = events;
+        this.replies = replies;
+        this.attachments = attachments;
+        this.issues = issues;
+        this.states = states;
+        status.put("last_run_at", null);
+        status.put("last_ok_at", null);
+        status.put("last_error", null);
+        status.put("last_found", 0);
+        status.put("next_run_at", null);
     }
 
-    public static boolean configured() {
-        return !Config.imapHost().isEmpty() && !Config.imapUser().isEmpty() && !Config.imapPassword().isEmpty();
+    public boolean configured() {
+        return !live.imapHost().isEmpty() && !live.imapUser().isEmpty() && !live.imapPassword().isEmpty();
     }
 
-    public static boolean enabled() {
-        return Config.INBOX_ENABLED() && configured();
+    public boolean enabled() {
+        return live.inboxEnabled() && configured();
     }
 
-    public static String mailboxName() {
-        return Config.imapUser() + "@" + Config.imapHost() + "/" + Config.IMAP_FOLDER();
+    public String mailboxName() {
+        return live.imapUser() + "@" + live.imapHost() + "/" + live.imapFolder();
     }
 
-    public static Map<String, Object> statusDict() {
+    public Map<String, Object> statusDict() {
         Map<String, Object> out;
-        synchronized (STATUS) {
-            out = new LinkedHashMap<>(STATUS);
+        synchronized (status) {
+            out = new LinkedHashMap<>(status);
         }
         out.put("enabled", enabled());
-        out.put("switched_on", Config.INBOX_ENABLED());
+        out.put("switched_on", live.inboxEnabled());
         out.put("configured", configured());
-        out.put("provider", Config.MAIL_PROVIDER());
-        out.put("mailbox", configured() ? Config.mailboxAddress() : null);
-        out.put("host", Config.imapHost());
-        out.put("folder", Config.IMAP_FOLDER());
-        out.put("check_every_seconds", Config.INBOX_CHECK_SECONDS());
+        out.put("provider", live.mailProvider());
+        out.put("mailbox", configured() ? live.mailboxAddress() : null);
+        out.put("host", live.imapHost());
+        out.put("folder", live.imapFolder());
+        out.put("check_every_seconds", live.inboxCheckSeconds());
         return out;
     }
 
@@ -197,33 +253,39 @@ public final class Inbox {
         final Map<String, Set<Integer>> partnersByAddress = new HashMap<>();
         final Map<String, Set<Integer>> partnersByDomain = new HashMap<>();
 
-        Matcher_(Db db) {
+        /** Read with plain SQL (the values are copied: nothing stays attached to a persistence context). */
+        Matcher_(JdbcClient jdbc, LiveSettings live) {
             Map<Integer, Set<String>> partnerAddresses = new HashMap<>();
-            for (Object[] row : db.rows("SELECT partner_id, email FROM partner_emails")) {
+            for (Object[] row : SqlRows.rows(jdbc, "SELECT partner_id, email FROM partner_emails")) {
                 partnerAddresses.computeIfAbsent(((Number) row[0]).intValue(), k -> new HashSet<>())
                         .add(((String) row[1]).toLowerCase(java.util.Locale.ROOT));
             }
-            for (Object[] row : db.rows("SELECT id, name FROM partners")) partnerNames.put(((Number) row[0]).intValue(), (String) row[1]);
+            for (Object[] row : SqlRows.rows(jdbc, "SELECT id, name FROM partners")) partnerNames.put(((Number) row[0]).intValue(), (String) row[1]);
             LocalDateTime oldest = null;
-            for (EmailDispatch d : db.all(EmailDispatch.class, "WHERE t.status = 'SENT'")) {
-                Sent s = new Sent(d.id, d.partnerId, partnerNames.getOrDefault(d.partnerId, ""), d.subject, d.toEmails, d.ccEmails,
-                        d.sentAt, partnerAddresses.getOrDefault(d.partnerId, Set.of()));
-                if (!Py.isEmpty(d.messageId)) byId.put(normId(d.messageId), d.id);
-                dispatches.put(d.id, s);
-                bySubject.computeIfAbsent(normSubject(d.subject), k -> new ArrayList<>()).add(s);
-                if (d.sentAt != null && (oldest == null || d.sentAt.isBefore(oldest))) oldest = d.sentAt;
+            // the SENT email_dispatches rows (only the columns the matcher needs)
+            for (Object[] row : SqlRows.rows(jdbc, "SELECT t.id, t.partner_id, t.subject, t.to_emails, t.cc_emails, t.sent_at, t.message_id "
+                    + "FROM email_dispatches t WHERE t.status = 'SENT'")) {
+                int id = ((Number) row[0]).intValue(), partnerId = ((Number) row[1]).intValue();
+                String subject = (String) row[2], messageId = (String) row[6];
+                LocalDateTime sentAt = (LocalDateTime) row[5];
+                Sent s = new Sent(id, partnerId, partnerNames.getOrDefault(partnerId, ""), subject, (String) row[3], (String) row[4],
+                        sentAt, partnerAddresses.getOrDefault(partnerId, Set.of()));
+                if (!Py.isEmpty(messageId)) byId.put(normId(messageId), id);
+                dispatches.put(id, s);
+                bySubject.computeIfAbsent(normSubject(subject), k -> new ArrayList<>()).add(s);
+                if (sentAt != null && (oldest == null || sentAt.isBefore(oldest))) oldest = sentAt;
             }
-            for (Object[] row : db.rows("SELECT dispatch_id, message_id FROM email_events WHERE kind IN ('followup', 'answer') "
+            for (Object[] row : SqlRows.rows(jdbc, "SELECT dispatch_id, message_id FROM email_events WHERE kind IN ('followup', 'answer') "
                     + "AND message_id IS NOT NULL ORDER BY id")) {
                 byId.put(normId((String) row[1]), ((Number) row[0]).intValue());
             }
-            for (String a : new String[]{Config.imapUser(), Config.MAIL_FROM(), Config.SMTP_USER(), Config.mailFrom(), Config.mailboxAddress()}) {
+            for (String a : new String[]{live.imapUser(), live.mailFrom(), live.smtpUser(), live.mailFrom(), live.mailboxAddress()}) {
                 if (a != null && !Py.strip(a).isEmpty()) ours.add(Py.strip(a).toLowerCase(java.util.Locale.ROOT));
             }
             oldestSent = oldest;
             Set<String> ownDomains = new HashSet<>();
             for (String a : ours) ownDomains.add(domain(a));
-            for (Object[] row : db.rows("SELECT partner_id, email FROM partner_emails ORDER BY id")) {
+            for (Object[] row : SqlRows.rows(jdbc, "SELECT partner_id, email FROM partner_emails ORDER BY id")) {
                 String address = Py.strip((String) row[1]).toLowerCase(java.util.Locale.ROOT);
                 int partnerId = ((Number) row[0]).intValue();
                 partnersByAddress.computeIfAbsent(address, k -> new LinkedHashSet<>()).add(partnerId);
@@ -581,12 +643,13 @@ public final class Inbox {
         return Session.getInstance(p);
     }
 
-    /** Sign in to the mailbox: the settings in effect, or the given ones (System Settings test). */
-    static Store signIn(String host, Integer port, String user, String password) {
-        host = host != null ? host : Config.imapHost();
-        port = port != null ? port : Config.IMAP_PORT();
-        user = user != null ? user : Config.imapUser();
-        password = password != null ? password : Config.imapPassword();
+    /** Sign in to the mailbox with the settings in effect. */
+    Store signIn() {
+        return signIn(live.imapHost(), live.imapPort(), live.imapUser(), live.imapPassword());
+    }
+
+    /** Sign in to the mailbox with the given settings (System Settings test). */
+    static Store signIn(String host, int port, String user, String password) {
         Store store;
         try {
             store = imapSession().getStore("imaps");
@@ -653,15 +716,18 @@ public final class Inbox {
     static final class ImapSource implements Source {
         final IMAPFolder folder;
         final long uidvalidity;
+        final String host;
 
-        ImapSource(IMAPFolder folder, long uidvalidity) {
+        /** host: the IMAP server in effect (LiveSettings.imapHost()). */
+        ImapSource(IMAPFolder folder, long uidvalidity, String host) {
             this.folder = folder;
             this.uidvalidity = uidvalidity;
+            this.host = host;
         }
 
         /** Message-ID for a message without one (made-up ids start with "imap-"). */
         public String localId(Object uid) {
-            return "imap-" + uidvalidity + "-" + uid + "@" + Config.imapHost();
+            return "imap-" + uidvalidity + "-" + uid + "@" + host;
         }
 
         public Map<String, Object> ident(Object uid) {
@@ -705,7 +771,8 @@ public final class Inbox {
     // ---------------------------------------------------------------- Message-IDs of older emails
 
     private static final Duration RECOVER_WINDOW = Duration.ofMinutes(15);  // the Sent copy's Date vs. when the app recorded the send
-    private static final Set<String> RECOVER_TRIED = java.util.Collections.synchronizedSet(new HashSet<>());
+    /** Emails / follow-ups already looked for in the Sent folder ("d:id" / "e:id"). */
+    private final Set<String> recoverTried = java.util.Collections.synchronizedSet(new HashSet<>());
 
     /** The mailbox's Sent folder (the one flagged \Sent; Gmail: "[Gmail]/Sent Mail"). */
     static String sentFolder(Store store) throws MessagingException {
@@ -733,15 +800,17 @@ public final class Inbox {
      * subject, same recipient, sent within a few minutes) and save the Message-ID, so partners' replies to them
      * are matched by their reply headers. Returns how many were found.
      */
-    static int recoverMessageIds(Db db, Store store) throws MessagingException {
+    int recoverMessageIds(Store store) throws MessagingException {
         List<Pending> records = new ArrayList<>();
-        for (EmailDispatch d : db.all(EmailDispatch.class, "WHERE t.status = 'SENT' AND t.message_id IS NULL AND t.sent_at IS NOT NULL")) {
-            records.add(new Pending("d", d.id, d.subject, d.toEmails, d.sentAt));
+        for (Object[] d : SqlRows.rows(jdbc, "SELECT t.id, t.subject, t.to_emails, t.sent_at FROM email_dispatches t "
+                + "WHERE t.status = 'SENT' AND t.message_id IS NULL AND t.sent_at IS NOT NULL")) {
+            records.add(new Pending("d", ((Number) d[0]).intValue(), (String) d[1], (String) d[2], (LocalDateTime) d[3]));
         }
-        for (EmailEvent e : db.all(EmailEvent.class, "WHERE t.kind = 'followup' AND t.ok = ? AND t.message_id IS NULL", true)) {
-            records.add(new Pending("e", e.id, e.subject, e.toEmails, e.createdAt));
+        for (Object[] e : SqlRows.rows(jdbc, "SELECT t.id, t.subject, t.to_emails, t.created_at FROM email_events t "
+                + "WHERE t.kind = 'followup' AND t.ok = ? AND t.message_id IS NULL", true)) {
+            records.add(new Pending("e", ((Number) e[0]).intValue(), (String) e[1], (String) e[2], (LocalDateTime) e[3]));
         }
-        records.removeIf(r -> RECOVER_TRIED.contains(r.kind() + ":" + r.id()) || Py.isEmpty(r.subject()));
+        records.removeIf(r -> recoverTried.contains(r.kind() + ":" + r.id()) || Py.isEmpty(r.subject()));
         if (records.isEmpty()) return 0;
         String folderName = sentFolder(store);
         if (folderName == null) return 0;
@@ -751,8 +820,8 @@ public final class Inbox {
             Message[] messages = folder.search(new ReceivedDateTerm(ComparisonTerm.GE,
                     Date.from(since.toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant())));
             Set<String> used = new HashSet<>();
-            for (Object id : db.column("SELECT message_id FROM email_dispatches WHERE message_id IS NOT NULL")) used.add(normId((String) id));
-            for (Object id : db.column("SELECT message_id FROM email_events WHERE message_id IS NOT NULL")) used.add(normId((String) id));
+            for (Object id : SqlRows.column(jdbc, "SELECT message_id FROM email_dispatches WHERE message_id IS NOT NULL")) used.add(normId((String) id));
+            for (Object id : SqlRows.column(jdbc, "SELECT message_id FROM email_events WHERE message_id IS NOT NULL")) used.add(normId((String) id));
             List<Copy> copies = new ArrayList<>();
             String[] fields = {"Message-ID", "Subject", "To", "Cc", "Date"};
             for (int start = 0; start < messages.length; start += FETCH_BATCH) {
@@ -787,7 +856,7 @@ public final class Inbox {
                 }
             }
             pairs.sort(Comparator.comparing(p -> (Duration) p[0]));
-            int foundCount = 0;
+            Map<Pending, String> found = new LinkedHashMap<>();
             Set<String> done = new HashSet<>();
             Set<Integer> taken = new HashSet<>();
             for (Object[] p : pairs) {
@@ -795,15 +864,19 @@ public final class Inbox {
                 int i = (Integer) p[2];
                 String key = r.kind() + ":" + r.id();
                 if (done.contains(key) || taken.contains(i)) continue;
-                String messageId = Py.cut(copies.get(i).messageId(), 255);
-                if (r.kind().equals("d")) db.get(EmailDispatch.class, r.id()).messageId = messageId;
-                else db.get(EmailEvent.class, r.id()).messageId = messageId;
+                found.put(r, Py.cut(copies.get(i).messageId(), 255));
                 done.add(key);
                 taken.add(i);
-                foundCount++;
             }
-            db.commit();
-            for (Pending r : records) RECOVER_TRIED.add(r.kind() + ":" + r.id());
+            transactionTemplate.executeWithoutResult(s -> {
+                for (Map.Entry<Pending, String> f : found.entrySet()) {
+                    Pending r = f.getKey();
+                    if (r.kind().equals("d")) dispatches.findById(r.id()).orElseThrow().setMessageId(f.getValue());
+                    else events.findById(r.id()).orElseThrow().setMessageId(f.getValue());
+                }
+            });
+            int foundCount = found.size();
+            for (Pending r : records) recoverTried.add(r.kind() + ":" + r.id());
             if (foundCount > 0) LOG.info("Inbox: recovered the Message-ID of " + foundCount + " earlier emails from " + folderName);
             return foundCount;
         } finally {
@@ -821,75 +894,102 @@ public final class Inbox {
         result.put(key, (Integer) result.get(key) + 1);
     }
 
-    /** Look for new partner mail once. Throws when the mailbox can't be read. */
-    public static Map<String, Object> scan() throws Exception {
-        LOCK.lock();
-        try (Db db = Db.open()) {
-            STATUS.put("last_run_at", Py.isoSeconds(LocalDateTime.now()));
+    /**
+     * The check works apart from the request that started it ("Check now"), like the background check (the old
+     * code opened a Db session of its own): the request's persistence context is set aside meanwhile, so every
+     * transaction below gets a new EntityManager and reads the rows as they are now. Returns what to put back.
+     * Inside a transaction (don't do that) nothing is set aside.
+     */
+    private Object setRequestContextAside() {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) return null;
+        return TransactionSynchronizationManager.unbindResourceIfPossible(entityManagerFactory);
+    }
+
+    private void putRequestContextBack(Object requestContext) {
+        if (requestContext != null) TransactionSynchronizationManager.bindResource(entityManagerFactory, requestContext);
+    }
+
+    /**
+     * Look for new partner mail once. Throws when the mailbox can't be read.
+     * Runs in transactions of its own: don't call it inside a transaction.
+     */
+    public Map<String, Object> scan() throws Exception {
+        lock.lock();
+        Object requestContext = setRequestContextAside();
+        try {
+            status.put("last_run_at", Py.isoSeconds(LocalDateTime.now()));
             Map<String, Object> result;
             try {
-                result = scanWith(db);
+                result = scanWith();
             } catch (Exception e) {
-                STATUS.put("last_error", Py.cut(String.valueOf(e.getMessage()), 500));
+                status.put("last_error", Py.cut(String.valueOf(e.getMessage()), 500));
                 throw e;
             }
-            STATUS.put("last_ok_at", STATUS.get("last_run_at"));
-            STATUS.put("last_error", null);
-            STATUS.put("last_found", result.get("found"));
+            status.put("last_ok_at", status.get("last_run_at"));
+            status.put("last_error", null);
+            status.put("last_found", result.get("found"));
             if ((Integer) result.get("found") > 0) {
                 LOG.info("Inbox: " + result.get("found") + " new partner messages (" + result.get("replies") + " replies)");
             }
             return result;
         } finally {
-            LOCK.unlock();
+            putRequestContextBack(requestContext);
+            lock.unlock();
         }
     }
 
-    private static Map<String, Object> scanWith(Db db) throws Exception {
+    private Map<String, Object> scanWith() throws Exception {
         Map<String, Object> result = newResult();
         if (!configured()) throw new RuntimeException("Reading partner mail is not set up: fill in the mailbox on the System Settings page.");
-        if (!Config.INBOX_ENABLED()) throw new RuntimeException("Reading partner mail is switched off on the System Settings page.");
-        boolean hasSent = db.scalar("SELECT id FROM email_dispatches WHERE status = 'SENT' LIMIT 1") != null;
-        if (!hasSent && db.scalar("SELECT id FROM partner_emails LIMIT 1") == null) return result;  // nothing to match yet
+        if (!live.inboxEnabled()) throw new RuntimeException("Reading partner mail is switched off on the System Settings page.");
+        boolean hasSent = SqlRows.scalar(jdbc, "SELECT id FROM email_dispatches WHERE status = 'SENT' LIMIT 1") != null;
+        if (!hasSent && SqlRows.scalar(jdbc, "SELECT id FROM partner_emails LIMIT 1") == null) return result;  // nothing to match yet
 
-        Store store = signIn(null, null, null, null);
+        Store store = signIn();
         try {
             if (hasSent) {
-                int recovered = recoverMessageIds(db, store);
+                int recovered = recoverMessageIds(store);
                 result.put("recovered", recovered);
                 if (recovered > 0) {  // read the inbox again from the start: earlier replies can now be matched
-                    db.execute("DELETE FROM inbox_state WHERE mailbox = ?", mailboxName());
-                    db.commit();
+                    String mailbox = mailboxName();
+                    transactionTemplate.executeWithoutResult(s ->
+                            jdbc.sql("DELETE FROM inbox_state WHERE mailbox = ?").param(mailbox).update());
                 }
             }
-            Matcher_ matcher = new Matcher_(db);
-            IMAPFolder folder = openFolder(store, Config.IMAP_FOLDER());
+            Matcher_ matcher = new Matcher_(jdbc, live);
+            IMAPFolder folder = openFolder(store, live.imapFolder());
             try {
                 long uidvalidity = folder.getUIDValidity();
-                InboxState state = db.get(InboxState.class, mailboxName());
-                Message[] found;
-                if (state == null || state.uidvalidity != uidvalidity) {  // first check, or the folder was rebuilt
-                    if (state == null) {
-                        state = new InboxState();
-                        state.mailbox = mailboxName();
+                // {last UID read, 1 when this is the first check of the folder (or it was rebuilt)}
+                long[] start = transactionTemplate.execute(s -> {
+                    InboxState state = states.findById(mailboxName()).orElse(null);
+                    if (state == null || !Objects.equals(state.getUidvalidity(), uidvalidity)) {  // first check, or the folder was rebuilt
+                        if (state == null) {
+                            state = new InboxState();
+                            state.setMailbox(mailboxName());
+                        }
+                        state.setUidvalidity(uidvalidity);
+                        state.setLastUid(0L);
+                        states.save(state);
+                        return new long[]{0L, 1L};
                     }
-                    state.uidvalidity = uidvalidity;
-                    state.lastUid = 0L;
-                    db.add(state);
-                    db.commit();
-                    LocalDateTime since = LocalDateTime.now().minusDays(Config.INBOX_FIRST_SCAN_DAYS());
+                    return new long[]{state.getLastUid() == null ? 0L : state.getLastUid(), 0L};
+                });
+                long last = start[0];
+                Message[] found;
+                if (start[1] == 1L) {
+                    LocalDateTime since = LocalDateTime.now().minusDays(live.inboxFirstScanDays());
                     if (matcher.oldestSent != null && matcher.oldestSent.minusDays(1).isAfter(since)) since = matcher.oldestSent.minusDays(1);
                     found = folder.search(new ReceivedDateTerm(ComparisonTerm.GE,
                             Date.from(since.toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant())));
                 } else {
-                    found = folder.getMessagesByUID(state.lastUid + 1, UIDFolder.LASTUID);
+                    found = folder.getMessagesByUID(last + 1, UIDFolder.LASTUID);
                 }
                 FetchProfile uidOnly = new FetchProfile();
                 uidOnly.add(UIDFolder.FetchProfileItem.UID);
                 folder.fetch(found, uidOnly);
                 // "UID n:*" also returns the newest message when there is nothing newer than n
                 Map<Long, Message> byUid = new java.util.TreeMap<>();
-                long last = state.lastUid;
                 for (Message m : found) {
                     if (m == null) continue;
                     long uid = folder.getUID(m);
@@ -897,9 +997,9 @@ public final class Inbox {
                 }
                 List<Long> uids = new ArrayList<>(byUid.keySet());
                 result.put("checked", uids.size());
-                ImapSource src = new ImapSource(folder, uidvalidity);
-                for (int start = 0; start < uids.size(); start += FETCH_BATCH) {
-                    List<Long> batch = uids.subList(start, Math.min(uids.size(), start + FETCH_BATCH));
+                ImapSource src = new ImapSource(folder, uidvalidity, live.imapHost());
+                for (int from = 0; from < uids.size(); from += FETCH_BATCH) {
+                    List<Long> batch = uids.subList(from, Math.min(uids.size(), from + FETCH_BATCH));
                     Message[] messages = new Message[batch.size()];
                     for (int i = 0; i < batch.size(); i++) messages[i] = byUid.get(batch.get(i));
                     FetchProfile fp = new FetchProfile();
@@ -913,24 +1013,21 @@ public final class Inbox {
                         String outcome;
                         try {
                             header = headerBytes(messages[i], HEADER_FIELDS);
-                            outcome = processMessage(db, src, matcher, uid, header, Math.max(0, messages[i].getSize()));
-                        } catch (Exception e) {  // one bad message must not stop the others
-                            db.rollback();
-                            recordIssue(db, src, uid, header, e);
+                            outcome = processInTransaction(src, matcher, uid, header, Math.max(0, messages[i].getSize()));
+                        } catch (Exception e) {  // one bad message must not stop the others (its changes were rolled back)
+                            recordIssue(src, uid, header, e);
                             bump(result, "issues");
-                            state = reattach(db, state);
                             continue;
                         }
-                        state = reattach(db, state);
                         if (outcome != null) {
                             bump(result, "found");
                             bump(result, outcome);
                         }
                     }
-                    state.lastUid = Math.max(state.lastUid, batch.get(batch.size() - 1));
-                    db.commit();
+                    long batchLast = batch.get(batch.size() - 1);
+                    transactionTemplate.executeWithoutResult(s -> states.findById(mailboxName()).ifPresent(state ->
+                            state.setLastUid(state.getLastUid() == null ? batchLast : Math.max(state.getLastUid(), batchLast))));
                 }
-                db.commit();
                 return result;
             } finally {
                 if (folder.isOpen()) folder.close(false);
@@ -944,15 +1041,47 @@ public final class Inbox {
         }
     }
 
-    /** The session's copy of the state row (a rollback may have reloaded it). */
-    private static InboxState reattach(Db db, InboxState state) {
-        if (db.contains(state)) return state;
-        InboxState fresh = db.get(InboxState.class, state.mailbox);
-        return fresh != null ? fresh : state;
+    /** The message was stored by another check at the same moment (unique Message-ID): nothing more to do. */
+    private static final class AlreadyStored extends RuntimeException {
+        AlreadyStored() {
+            super(null, null, false, false);
+        }
     }
 
-    /** Store one message if it is partner mail. Returns "replies", "partner_mail", "review", or null. */
-    static String processMessage(Db db, Source src, Matcher_ matcher, Object key, byte[] headerBytes, int size) throws Exception {
+    /** A checked exception thrown inside a transaction callback (unwrapped again outside it). */
+    private static final class Checked extends RuntimeException {
+        Checked(Exception cause) {
+            super(cause);
+        }
+    }
+
+    /**
+     * processMessage in a transaction of its own: committed when the message was stored, rolled back (and the
+     * exception passed on) when it fails.
+     */
+    private String processInTransaction(Source src, Matcher_ matcher, Object key, byte[] headerBytes, int size) throws Exception {
+        try {
+            return transactionTemplate.execute(s -> {
+                try {
+                    return processMessage(src, matcher, key, headerBytes, size);
+                } catch (RuntimeException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new Checked(e);
+                }
+            });
+        } catch (AlreadyStored e) {
+            return null;  // rolled back
+        } catch (Checked e) {
+            throw (Exception) e.getCause();
+        }
+    }
+
+    /**
+     * Store one message if it is partner mail. Returns "replies", "partner_mail", "review", or null.
+     * Runs inside the caller's transaction (processInTransaction).
+     */
+    String processMessage(Source src, Matcher_ matcher, Object key, byte[] headerBytes, int size) throws Exception {
         Headers headers = new Headers(headerBytes);
         String sender = firstAddress(headers.raw("From"))[1];
         String kind = classify(headers, sender);
@@ -989,14 +1118,14 @@ public final class Inbox {
         String messageId = normId(headers.text("Message-ID"));
         if (messageId.isEmpty()) messageId = src.localId(key);
         messageId = Py.cut(messageId, 255);
-        if (db.scalar("SELECT id FROM email_replies WHERE message_id = ? LIMIT 1", messageId) != null) return null;
-        EmailDispatch d = dispatchId == null ? null : db.get(EmailDispatch.class, dispatchId);
-        if (!saveMessage(db, src, key, size, messageId, d, matchedBy, kind, partnerId, review)) return null;
+        if (SqlRows.scalar(jdbc, "SELECT id FROM email_replies WHERE message_id = ? LIMIT 1", messageId) != null) return null;
+        EmailDispatch d = dispatchId == null ? null : dispatches.findById(dispatchId).orElse(null);
+        if (!saveMessage(src, key, size, messageId, d, matchedBy, kind, partnerId, review)) return null;
         return kind.equals(REVIEW) ? "review" : d != null ? "replies" : "partner_mail";
     }
 
-    /** A message that could not be read: listed for an admin (once per message). */
-    static void recordIssue(Db db, Source src, Object key, byte[] headerBytes, Exception exc) {
+    /** A message that could not be read: listed for an admin (once per message). Committed at once. */
+    void recordIssue(Source src, Object key, byte[] headerBytes, Exception exc) {
         String sender = "", subject = "";
         try {
             Headers headers = new Headers(headerBytes == null ? new byte[0] : headerBytes);
@@ -1006,50 +1135,67 @@ public final class Inbox {
             // unreadable headers: listed without them
         }
         String error = Py.cut(exc.getClass().getSimpleName() + ": " + exc.getMessage(), 2000);
-        LOG.warning("Inbox: message " + key + " could not be read: " + error);
+        LOG.warn("Inbox: message " + key + " could not be read: " + error);
         Map<String, Object> ident = src.ident(key);
-        InboxIssue issue = db.first(InboxIssue.class, "WHERE t.mailbox = ? AND t.resolved_at IS NULL AND t.uidvalidity = ? AND t.uid = ? "
-                        + (ident.get("remote_id") == null ? "AND t.remote_id IS NULL" : "AND t.remote_id = ?"),
-                ident.get("remote_id") == null ? new Object[]{mailboxName(), ident.get("uidvalidity"), ident.get("uid")}
-                        : new Object[]{mailboxName(), ident.get("uidvalidity"), ident.get("uid"), ident.get("remote_id")});
-        if (issue != null) {
-            issue.attempts += 1;
-            issue.error = error;
-        } else {
-            issue = new InboxIssue();
-            issue.mailbox = mailboxName();
-            issue.sender = Py.cut(sender, 254);
-            issue.subject = Py.cut(subject, 500);
-            issue.error = error;
-            issue.uidvalidity = (Long) ident.get("uidvalidity");
-            issue.uid = (Long) ident.get("uid");
-            issue.remoteId = (String) ident.get("remote_id");
-            db.add(issue);
-        }
-        db.commit();
+        String mailbox = mailboxName(), from = sender, about = subject;
+        transactionTemplate.executeWithoutResult(s -> {
+            InboxIssue issue = openIssue(mailbox, ident);
+            if (issue != null) {
+                issue.setAttempts(issue.getAttempts() + 1);
+                issue.setError(error);
+            } else {
+                issue = new InboxIssue();
+                issue.setMailbox(mailbox);
+                issue.setSender(Py.cut(from, 254));
+                issue.setSubject(Py.cut(about, 500));
+                issue.setError(error);
+                issue.setUidvalidity((Long) ident.get("uidvalidity"));
+                issue.setUid((Long) ident.get("uid"));
+                issue.setRemoteId((String) ident.get("remote_id"));
+                issues.save(issue);
+            }
+        });
+    }
+
+    /** The unresolved issue of this message, or null. */
+    private InboxIssue openIssue(String mailbox, Map<String, Object> ident) {
+        boolean noRemoteId = ident.get("remote_id") == null;
+        var query = entityManager.createQuery("SELECT i FROM InboxIssue i WHERE i.mailbox = :mailbox AND i.resolvedAt IS NULL "
+                        + "AND i.uidvalidity = :uidvalidity AND i.uid = :uid "
+                        + (noRemoteId ? "AND i.remoteId IS NULL" : "AND i.remoteId = :remoteId"), InboxIssue.class)
+                .setParameter("mailbox", mailbox)
+                .setParameter("uidvalidity", ident.get("uidvalidity"))
+                .setParameter("uid", ident.get("uid"))
+                .setMaxResults(1);
+        if (!noRemoteId) query.setParameter("remoteId", ident.get("remote_id"));
+        List<InboxIssue> found = query.getResultList();
+        return found.isEmpty() ? null : found.get(0);
     }
 
     /**
      * Read a message that failed before, again. Returns what it was (see processMessage); throws if it still
-     * can't be read (the issue stays open with the new error).
+     * can't be read (the issue stays open with the new error). Runs in transactions of its own: don't call it
+     * inside a transaction.
      */
-    public static String retryIssue(int issueId, String username) throws Exception {
-        LOCK.lock();
-        try (Db db = Db.open()) {
-            InboxIssue issue = db.get(InboxIssue.class, issueId);
-            if (issue == null || issue.resolvedAt != null) throw new RuntimeException("This issue is already resolved.");
-            if (!Py.isEmpty(issue.remoteId)) {  // read through Microsoft 365 before the app moved to Gmail
+    public String retryIssue(int issueId, String username) throws Exception {
+        lock.lock();
+        Object requestContext = setRequestContextAside();
+        try {
+            InboxIssue issue = issues.findById(issueId).orElse(null);
+            if (issue == null || issue.getResolvedAt() != null) throw new RuntimeException("This issue is already resolved.");
+            if (!Py.isEmpty(issue.getRemoteId())) {  // read through Microsoft 365 before the app moved to Gmail
                 throw new RuntimeException("This message was in the old Microsoft 365 mailbox and can't be read from Gmail. Dismiss it.");
             }
-            Store store = signIn(null, null, null, null);
+            Store store = signIn();
             try {
-                IMAPFolder folder = openFolder(store, Config.IMAP_FOLDER());
+                IMAPFolder folder = openFolder(store, live.imapFolder());
                 try {
                     long uidvalidity = folder.getUIDValidity();
-                    if (uidvalidity != issue.uidvalidity || !issue.mailbox.equals(mailboxName())) {
+                    if (!Objects.equals(issue.getUidvalidity(), uidvalidity) || !issue.getMailbox().equals(mailboxName())) {
                         throw new RuntimeException("The mailbox has changed since; this message can't be found again. Dismiss it.");
                     }
-                    Message m = folder.getMessageByUID(issue.uid);
+                    long uid = issue.getUid();
+                    Message m = folder.getMessageByUID(uid);
                     if (m == null) throw new RuntimeException("The message is no longer in the mailbox. Dismiss it.");
                     FetchProfile fp = new FetchProfile();
                     fp.add(UIDFolder.FetchProfileItem.UID);
@@ -1058,20 +1204,22 @@ public final class Inbox {
                     folder.fetch(new Message[]{m}, fp);
                     String outcome;
                     try {
-                        outcome = processMessage(db, new ImapSource(folder, uidvalidity), new Matcher_(db), issue.uid,
+                        outcome = processInTransaction(new ImapSource(folder, uidvalidity, live.imapHost()), new Matcher_(jdbc, live), uid,
                                 headerBytes(m, HEADER_FIELDS), Math.max(0, m.getSize()));
-                    } catch (Exception e) {
-                        db.rollback();
-                        InboxIssue again = db.get(InboxIssue.class, issueId);
-                        again.attempts += 1;
-                        again.error = Py.cut(e.getClass().getSimpleName() + ": " + e.getMessage(), 2000);
-                        db.commit();
+                    } catch (Exception e) {  // its changes were rolled back
+                        String error = Py.cut(e.getClass().getSimpleName() + ": " + e.getMessage(), 2000);
+                        transactionTemplate.executeWithoutResult(s -> {
+                            InboxIssue again = issues.findById(issueId).orElseThrow();
+                            again.setAttempts(again.getAttempts() + 1);
+                            again.setError(error);
+                        });
                         throw new RuntimeException("Still can't be read: " + e.getMessage());
                     }
-                    InboxIssue done = db.get(InboxIssue.class, issueId);
-                    done.resolvedAt = Py.now();
-                    done.resolvedBy = username;
-                    db.commit();
+                    transactionTemplate.executeWithoutResult(s -> {
+                        InboxIssue done = issues.findById(issueId).orElseThrow();
+                        done.setResolvedAt(Py.now());
+                        done.setResolvedBy(username);
+                    });
                     return outcome;
                 } finally {
                     if (folder.isOpen()) folder.close(false);
@@ -1084,7 +1232,8 @@ public final class Inbox {
                 }
             }
         } finally {
-            LOCK.unlock();
+            putRequestContextBack(requestContext);
+            lock.unlock();
         }
     }
 
@@ -1095,10 +1244,12 @@ public final class Inbox {
 
     /**
      * Download one partner message and store it. A reply (not an automatic one) sets its email to "Reply
-     * received"; a bounce flags the address it names as refused.
+     * received"; a bounce flags the address it names as refused. Runs inside the caller's transaction
+     * (committed by processInTransaction); a message stored by another check at the same moment throws
+     * AlreadyStored, which rolls it back.
      */
-    static boolean saveMessage(Db db, Source src, Object key, int size, String messageId, EmailDispatch d, String matchedBy,
-                               String kind, Integer partnerId, Object[] review) throws Exception {
+    boolean saveMessage(Source src, Object key, int size, String messageId, EmailDispatch d, String matchedBy,
+                        String kind, Integer partnerId, Object[] review) throws Exception {
         Fetched fetched = src.fetch(key, size);
         if (fetched == null) return false;
         Headers msg = new Headers(headOnly(fetched.raw()));
@@ -1111,115 +1262,137 @@ public final class Inbox {
         String[] from = firstAddress(msg.raw("From"));
         String name = from[0], sender = from[1];
         EmailReply reply = new EmailReply();
-        reply.dispatchId = d != null ? d.id : null;
-        reply.partnerId = partnerId;
-        reply.kind = kind;
-        reply.messageId = messageId;
-        reply.fromEmail = Py.cut(sender.toLowerCase(java.util.Locale.ROOT), 254);
-        reply.fromName = Py.cut(name, 200);
-        reply.toEmails = addressList(msg.raw("To"));
-        reply.ccEmails = addressList(msg.raw("Cc"));
-        reply.subject = Py.cut(Py.or(msg.text("Subject"), "(no subject)"), 500);
-        reply.bodyHtml = content.bodyHtml();
-        reply.snippet = content.snippet();
-        reply.matchedBy = matchedBy;
-        reply.receivedAt = received;
+        reply.setDispatchId(d != null ? d.getId() : null);
+        reply.setPartnerId(partnerId);
+        reply.setKind(kind);
+        reply.setMessageId(messageId);
+        reply.setFromEmail(Py.cut(sender.toLowerCase(java.util.Locale.ROOT), 254));
+        reply.setFromName(Py.cut(name, 200));
+        reply.setToEmails(addressList(msg.raw("To")));
+        reply.setCcEmails(addressList(msg.raw("Cc")));
+        reply.setSubject(Py.cut(Py.or(msg.text("Subject"), "(no subject)"), 500));
+        reply.setBodyHtml(content.bodyHtml());
+        reply.setSnippet(content.snippet());
+        reply.setMatchedBy(matchedBy);
+        reply.setReceivedAt(received);
         List<String> parents = referencedIds(msg.text("In-Reply-To"), "");
         String parent = parents.isEmpty() ? "" : Py.cut(parents.get(0), 255);
-        reply.inReplyTo = parent.isEmpty() ? null : parent;
-        reply.suggestedDispatchId = review != null ? (Integer) review[0] : null;
-        reply.reviewReason = review != null ? Py.cut((String) review[1], 255) : null;
-        db.add(reply);
+        reply.setInReplyTo(parent.isEmpty() ? null : parent);
+        reply.setSuggestedDispatchId(review != null ? (Integer) review[0] : null);
+        reply.setReviewReason(review != null ? Py.cut((String) review[1], 255) : null);
         try {
-            db.flush();
-        } catch (Db.DbException e) {
-            if (!e.integrity()) throw e;
-            db.rollback();  // stored by another check at the same moment
-            return false;
+            replies.save(reply);  // inserted now (its id is needed below)
+        } catch (DataIntegrityViolationException e) {
+            throw new AlreadyStored();  // stored by another check at the same moment
         }
         for (Object[] a : content.attachments()) {
             EmailReplyAttachment att = new EmailReplyAttachment();
-            att.replyId = reply.id;
-            att.filename = (String) a[0];
-            att.contentType = (String) a[1];
-            att.content = (byte[]) a[2];
-            att.size = att.content.length;
-            db.add(att);
+            att.setReplyId(reply.getId());
+            att.setFilename((String) a[0]);
+            att.setContentType((String) a[1]);
+            att.setContent((byte[]) a[2]);
+            att.setSize(att.getContent().length);
+            attachments.save(att);
         }
         if (d != null) {
             String who = !name.isEmpty() ? name + " <" + sender + ">" : sender;
             // in the history after the email it answers, even if the sender's clock is wrong
-            LocalDateTime at = d.sentAt != null && d.sentAt.isAfter(received) ? d.sentAt : received;
+            LocalDateTime at = d.getSentAt() != null && d.getSentAt().isAfter(received) ? d.getSentAt() : received;
             EmailEvent ev = new EmailEvent();
-            ev.dispatchId = d.id;
-            ev.kind = kind;
-            ev.replyId = reply.id;
-            ev.subject = Py.cut(reply.subject, 300);
-            ev.note = String.format(EVENT_NOTES.get(kind), who);
-            ev.createdBy = INBOX_USER;
-            ev.createdAt = at;
-            db.add(ev);
-            if (kind.equals(REPLY) && "not_received".equals(d.replyStatus)) {  // never overrides Reconciled
-                d.replyStatus = "received";
-                d.replyStatusBy = INBOX_USER;
-                d.replyStatusAt = Py.now();
-                EmailEvent status = new EmailEvent();
-                status.dispatchId = d.id;
-                status.kind = "status";
-                status.replyStatus = "received";
-                status.note = "Set automatically: the partner's reply was found in the mailbox.";
-                status.createdBy = INBOX_USER;
-                db.add(status);
+            ev.setDispatchId(d.getId());
+            ev.setKind(kind);
+            ev.setReplyId(reply.getId());
+            ev.setSubject(Py.cut(reply.getSubject(), 300));
+            ev.setNote(String.format(EVENT_NOTES.get(kind), who));
+            ev.setCreatedBy(INBOX_USER);
+            ev.setCreatedAt(at);
+            events.save(ev);
+            if (kind.equals(REPLY) && "not_received".equals(d.getReplyStatus())) {  // never overrides Reconciled
+                d.setReplyStatus("received");
+                d.setReplyStatusBy(INBOX_USER);
+                d.setReplyStatusAt(Py.now());
+                EmailEvent statusEvent = new EmailEvent();
+                statusEvent.setDispatchId(d.getId());
+                statusEvent.setKind("status");
+                statusEvent.setReplyStatus("received");
+                statusEvent.setNote("Set automatically: the partner's reply was found in the mailbox.");
+                statusEvent.setCreatedBy(INBOX_USER);
+                events.save(statusEvent);
             }
             if (kind.equals(BOUNCE)) {
                 for (String address : Py.csv(addressList(msg.raw("X-Failed-Recipients")))) {
-                    Delivery.recordRefused(d, address, "Bounced: the mail server could not deliver it");
+                    delivery.recordRefused(d, address, "Bounced: the mail server could not deliver it");
                 }
             }
         }
-        db.commit();
         return true;
     }
 
-    // ---------------------------------------------------------------- background thread
+    // ---------------------------------------------------------------- background check
 
-    /** Background thread: check the mailbox every INBOX_CHECK_SECONDS (at once after a settings change). */
-    public static void loop() {
-        while (!stopped) {
+    /** At startup: check the mailbox now, then every INBOX_CHECK_SECONDS (at once after a settings change). */
+    public void start() {
+        synchronized (schedule) {
+            if (started || stopped) return;
+            started = true;
+            next = taskScheduler.schedule(this::tick, Instant.now());
+        }
+    }
+
+    /** One background check, then the next one is scheduled (the interval is read again each time). */
+    private void tick() {
+        synchronized (schedule) {
+            if (stopped || running) return;
+            running = true;
+            woken = false;
+        }
+        try {
             if (enabled()) {
                 try {
                     scan();
                 } catch (Exception e) {
-                    LOG.warning("Inbox check failed: " + e.getMessage());
+                    LOG.warn("Inbox check failed: " + e.getMessage());
                 }
-                STATUS.put("next_run_at", Py.isoSeconds(LocalDateTime.now().plusSeconds(Config.INBOX_CHECK_SECONDS())));
+                status.put("next_run_at", Py.isoSeconds(LocalDateTime.now().plusSeconds(live.inboxCheckSeconds())));
             } else {
-                STATUS.put("next_run_at", null);
+                status.put("next_run_at", null);
             }
-            synchronized (WAKE) {
-                if (!woken && !stopped) {
-                    try {
-                        WAKE.wait(Config.INBOX_CHECK_SECONDS() * 1000L);
-                    } catch (InterruptedException e) {
-                        return;
-                    }
+        } catch (RuntimeException e) {
+            LOG.warn("Inbox check failed: " + e.getMessage());
+        } finally {
+            synchronized (schedule) {
+                running = false;
+                if (!stopped) {
+                    // woken while checking: check again at once, with the new settings
+                    Instant at = woken ? Instant.now() : Instant.now().plusSeconds(live.inboxCheckSeconds());
+                    woken = false;
+                    next = taskScheduler.schedule(this::tick, at);
                 }
-                woken = false;
             }
         }
     }
 
     /** The mailbox settings changed: check again now, with the new settings. */
-    public static void wake() {
-        synchronized (WAKE) {
-            woken = true;
-            WAKE.notifyAll();
+    public void wake() {
+        synchronized (schedule) {
+            if (!started || stopped) return;
+            if (running) {  // the check that is running now is followed by another one at once
+                woken = true;
+                return;
+            }
+            if (next != null) next.cancel(false);
+            next = taskScheduler.schedule(this::tick, Instant.now());
         }
     }
 
-    public static void stop() {
-        stopped = true;
-        wake();
+    /** At shutdown: no more checks (one that is running finishes). */
+    @PreDestroy
+    public void stop() {
+        synchronized (schedule) {
+            stopped = true;
+            if (next != null) next.cancel(false);
+            next = null;
+        }
     }
 
     /** users.created_at is stored in UTC; replies use local time. */

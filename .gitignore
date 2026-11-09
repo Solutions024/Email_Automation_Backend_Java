@@ -12,6 +12,9 @@ target/
 app/logs/
 *.log
 
+# Claude Code agent worktrees
+.claude/worktrees/
+
 # IDE files
 .idea/
 .vscode/

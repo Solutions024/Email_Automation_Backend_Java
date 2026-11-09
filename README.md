@@ -1,9 +1,12 @@
-# NPSB Dispute Email Automation — backend (Java)
+# NPSB Dispute Email Automation — backend (Spring Boot)
 
-Java 17 port of the FastAPI backend. Same REST API (paths, request/response JSON, status codes and
+Spring Boot port of the FastAPI backend. Same REST API (paths, request/response JSON, status codes and
 error messages), same MySQL tables and columns, so the existing React frontend and an existing
 database work unchanged. Passwords, JWT sessions and the encrypted System Settings secrets stored by
 the Python version stay valid (same hashing, token and encryption formats).
+
+Stack: Java 17, Spring Boot 4.1 (Spring MVC on embedded Tomcat, Spring Data JPA / Hibernate 7,
+Spring Security, Actuator, Jakarta Mail), springdoc-openapi (Swagger UI), SLF4J + Logback, Gradle.
 
 ## Build
 
@@ -11,13 +14,14 @@ Needs JDK 17+. Gradle itself comes with the project (the wrapper downloads it on
 
     ./gradlew build          # Windows: gradlew.bat build
 
-This runs the tests and makes one runnable jar: `build/libs/npsb-backend.jar`
-(`./gradlew shadowJar` makes only the jar, without running the tests).
+This runs all tests (including the HTTP contract test) and makes one runnable jar:
+`build/libs/npsb-backend.jar` (`./gradlew bootJar` makes only the jar).
 
-While developing, `./gradlew run` starts the API straight from the sources (same `.env`);
-pass arguments with `--args`, e.g. `./gradlew run --args="--port 8001"`.
+While developing, `./gradlew bootRun` starts the API straight from the sources (same `.env`);
+pass arguments with `--args`, e.g. `./gradlew bootRun --args="--port 8001"`.
 
-Dependency versions are in `gradle/libs.versions.toml`, the build in `build.gradle.kts`.
+Dependency versions are in `gradle/libs.versions.toml` (Spring Boot manages most of them), the build in
+`build.gradle.kts`.
 
 ## Run
 
@@ -32,32 +36,54 @@ Dependency versions are in `gradle/libs.versions.toml`, the build in `build.grad
        java -jar build/libs/npsb-backend.jar                  # host/port from .env (default 127.0.0.1:8000)
        java -jar build/libs/npsb-backend.jar --port 8000 --host 0.0.0.0
 
-API docs: http://localhost:8000/docs (Swagger UI) and /openapi.json.
+- API docs: http://localhost:8000/docs (Swagger UI) and http://localhost:8000/openapi.json. Sign in with
+  `POST /api/auth/login`, then use the access token with the Authorize button.
+- Health probes (no sign-in): `/startupz`, `/livez`, `/readyz` (same answers as before) and Spring Boot's
+  `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`.
+
+### Configuration
+
+All settings are listed in `src/main/resources/application.yml` with their `.env` name and default
+(`${SMTP_HOST:localhost}` reads `SMTP_HOST`). Values come from the environment or the `.env` file
+(the environment wins); `.env` is read with python-dotenv's rules, so the old files keep working.
+`NPSB_ENV_FILE` picks another file, or `none` for no file. Any Spring property can also be given as usual
+(`--server.port=8001`, `SPRING_...` environment variables).
+
+The settings admins change on the System Settings page are kept in the database and applied at startup and
+at once when changed (`config/LiveSettings`); the `.env` values are their defaults.
+
+### Logging
+
+SLF4J with Logback (`src/main/resources/logback-spring.xml`): the console, and the application log on the
+server (never shown in the portal): `APP_LOG_DIR` (default `app/logs` in the backend folder), `app.0.log` is
+the newest, rolled over at 10 MB, 20 files kept. Besides everything the backend logs it holds one tagged line
+per event: `[AUTH]` sign-ins and account changes, `[UPLOAD]`, `[EMAIL]`, `[REPLY]`, `[CHANGE]`
+(partners, templates, settings, approvals) and `[HTTP]` (requests that change something, and failed ones).
+Log levels can be set as usual, e.g. `LOGGING_LEVEL_COM_NAGAD_NPSB=DEBUG`.
+
+    java -jar build/libs/npsb-backend.jar export-log      # the log as CSV and JSON in APP_LOG_DIR/export
 
 ## Tests
 
-    ./gradlew test
+    ./gradlew test             # unit and API tests
+    ./gradlew contractTest     # the HTTP contract test (also part of ./gradlew check / build)
 
-JUnit 5 tests in `src/test/java`: unit tests (upload parsing, the application log) and API tests that
-start the real backend (routes, sign-in, SQL) on a free port against an **in-memory H2 database**.
-They never touch MySQL or send mail: the `test` task in `build.gradle.kts` gives them their own settings and
-`NPSB_ENV_FILE=none`, so your `.env` is not read. Covered: health probes, sign-in, no self sign-up,
-built-in admin only managing accounts, setting a password, forgot-password code, the RRN check
-across uploads, upload type and size limits, approvals and partner changes.
+They run against an **in-memory H2 database** and never touch MySQL or send real mail: the test tasks in
+`build.gradle.kts` give them their own settings and `NPSB_ENV_FILE=none`, so your `.env` is not read.
 
-### HTTP contract test
-
-    ./gradlew contractTest                          # compare with the recorded contract (also part of ./gradlew check)
-    ./gradlew contractTest -PcontractRecord=true    # record it again after an intended API change
-
-`src/test/java/com/nagad/npsb/contract` drives a fresh backend (its own in-memory database) only over HTTP
-through a long scenario: sign-in with emailed codes, users, partners, templates and approvals, uploads,
-preparing, sending and following up emails, settings, and the error answers (401/403/404/405/307/413/422, CORS).
-Every answer (status, contract headers, JSON body with clock values, tokens and ports normalized) is kept in
-`src/test/resources/contract/api-snapshot.json`; a difference fails the test with every differing step listed
-(also in `build/contract/contract-report.txt`, the new run in `build/contract/api-snapshot.actual.json`).
-Mail goes to a small SMTP server inside the test. The same test can be replayed against a reimplementation
-of the backend: it only needs `ApiTestServer.url()` and `ApiTestServer.tokenFor(username)`.
+- `src/test/java/.../api`: API tests that start the real backend (`ApiTestServer`) on a free port: health
+  probes, sign-in, no self sign-up, built-in admin only managing accounts, setting a password,
+  forgot-password code, the RRN check across uploads, upload type and size limits, approvals and partners.
+- `src/test/java/.../contract`: a black-box HTTP contract test. It drives a fresh backend only over HTTP
+  through a 463-step scenario covering every endpoint (sign-in with emailed codes, users, partners,
+  templates and approvals, uploads, preparing, sending and following up emails, settings, and the error
+  answers 401/403/404/405/307/409/413/422/429/502, CORS) and compares every answer (status, contract headers,
+  JSON body; clock values, tokens and ports normalized) with `src/test/resources/contract/api-snapshot.json`.
+  It was recorded against the previous (non-Spring) backend; the Spring Boot backend answers the same.
+  A difference fails the test with every differing step listed (`build/contract/contract-report.txt`).
+  After an intended API change, record it again: `./gradlew contractTest -PcontractRecord=true`.
+  Mail goes to a small SMTP server inside the test. The new run is written to
+  `build/contract/api-snapshot.actual.json`.
 
 ## Tools (same as the Python scripts)
 
@@ -68,21 +94,49 @@ of the backend: it only needs `ApiTestServer.url()` and `ApiTestServer.tokenFor(
     java -jar build/libs/npsb-backend.jar recover mail             # show / fix the mail settings
     java -jar build/libs/npsb-backend.jar recover code USERNAME    # one-time sign-in code made on the server
 
+## Code layout (`src/main/java/com/nagad/npsb/`)
+
+| Package | What's in it |
+|---------|--------------|
+| `NpsbApplication` | Spring Boot entry point (+ the `recover`, `test-mail-server`, `export-log` commands) |
+| `config` | settings (`NpsbProperties`, `LiveSettings`, `.env` support), data source and table set-up (`SchemaInitializer`), Spring Security, filters, OpenAPI, startup tasks |
+| `controller` | REST controllers (`@RestController`), one per area |
+| `service` | business logic (`@Service`), the background jobs (`FollowupService`, `Inbox`), mail (`EmailService`) |
+| `dto` | request bodies (typed records, validated with the FastAPI-compatible `web.Body` reader) |
+| `entity`, `repository` | JPA entities and Spring Data repositories, one per table |
+| `security` | JWT access tokens (`JwtService`), the authentication filter, `CurrentUser` |
+| `web` | error handling (`GlobalExceptionHandler`), CORS, request log, uploads, cookies, background tasks |
+| `util` | helpers kept from the Python port (`Py`, `PyJson`, `Crypto`, `AppLog`) |
+| `cli` | `RecoverCommand`, `TestMailServer` |
+
+Notes for working on it:
+
+- Errors keep the FastAPI format the frontend expects: throw `ApiException(status, detail)` for
+  `{"detail": ...}`; invalid input gives 422 with pydantic-style `[{type, loc, msg, input}]` details
+  (`web.Body`, `web.QueryParams`, `GlobalExceptionHandler`).
+- Endpoints check the sign-in themselves (`currentUser.require()` / `requireAdmin()`), so each keeps its exact
+  401 / 403 message and the order of its checks.
+- One JPA persistence context per request; changes are written on commit or an explicit flush
+  (`flushMode=COMMIT`). Where a request must keep some changes even when it then fails (e.g. a failed sign-in
+  counter), the service commits that part in its own `TransactionTemplate` block first.
+- The tables are created and upgraded by `SchemaInitializer` (Hibernate never changes the schema), so the
+  Python and Java backends can share one database.
+
 ## What maps to what
 
 | Python (app/)        | Java (src/main/java/com/nagad/npsb/)        |
 |----------------------|---------------------------------------------|
-| main.py              | api/MainApi.java, api/MoreApi.java, Application.java |
-| auth.py / users.py   | api/Auth.java / api/Users.java              |
-| answers.py           | api/Answers.java                            |
-| models.py, database.py | models/*, db/Database.java, db/Db.java    |
-| config.py            | Config.java                                 |
-| settings.py, server_settings.py | service/Settings.java, service/ServerSettings.java |
-| email_service.py | service/EmailService.java |
-| excel_parser.py      | service/ExcelParser.java (+ DateParse, Xlsx) |
-| inbox.py | service/Inbox.java |
-| approvals.py, alerts.py, delivery.py, email_check.py, seed.py | service/* (same names) |
-| recover.py, test_mail_server.py | Recover.java, TestMailServer.java |
+| main.py              | controller/* + service/* (Partner, Template, Upload, Draft, Sending, SentEmail, Followup, Reply, Activity...), NpsbApplication |
+| auth.py / users.py   | controller/AuthController, controller/UserController, service/AuthService, service/auth/UserAdminService |
+| answers.py           | controller/AnswerController, service/AnswerService |
+| models.py, database.py | entity/*, repository/*, config/SchemaInitializer, config/DataSourceConfig |
+| config.py            | config/NpsbProperties, config/LiveSettings, application.yml |
+| settings.py, server_settings.py | service/Settings, service/ServerSettings (+ EmailSettingsService, SystemSettingsService) |
+| email_service.py     | service/EmailService |
+| excel_parser.py      | service/ExcelParser (+ DateParse, Xlsx) |
+| inbox.py             | service/Inbox |
+| approvals.py, delivery.py, email_check.py, seed.py | service/* (same names) |
+| recover.py, test_mail_server.py | cli/RecoverCommand, cli/TestMailServer |
 
-Background jobs (automatic follow-ups, mailbox check) run as threads inside the
-server, as before.
+Background jobs (automatic follow-ups, mailbox check) run on Spring's task scheduler inside the server,
+as before; their intervals are read from the System Settings each time.

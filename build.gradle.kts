@@ -1,30 +1,39 @@
 plugins {
     java
-    application
-    alias(libs.plugins.shadow)
+    alias(libs.plugins.spring.boot)
+    alias(libs.plugins.spring.dependency.management)
 }
 
 group = "com.nagad"
 version = "1.0.0"
-description = "NPSB Dispute Email Automation - backend (Java)"
+description = "NPSB Dispute Email Automation - backend (Spring Boot)"
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    implementation(libs.tomcat.embed.core)
-    implementation(libs.jackson.databind)
-    implementation(libs.hikaricp)
-    implementation(libs.mysql.connector)
-    implementation(libs.jakarta.mail)
+    implementation(libs.spring.boot.starter.webmvc)
+    implementation(libs.spring.boot.starter.data.jpa)
+    implementation(libs.spring.boot.starter.validation)
+    implementation(libs.spring.boot.starter.security)
+    implementation(libs.spring.boot.starter.mail)
+    implementation(libs.angus.mail)  // compiled against: IMAP / SMTP classes (only at runtime in the starter)
+    implementation(libs.spring.boot.starter.actuator)
+    implementation(libs.springdoc.openapi)
     implementation(libs.poi.ooxml)
     implementation(libs.jsoup)
+    runtimeOnly(libs.mysql.connector)
     runtimeOnly(libs.h2)
-    runtimeOnly(libs.slf4j.nop)  // silences HikariCP's logging
 
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.junit.jupiter)
+    compileOnly(libs.lombok)
+    annotationProcessor(libs.lombok)
+    annotationProcessor(libs.spring.boot.configuration.processor)
+
+    testImplementation(libs.spring.boot.starter.test)
+    testImplementation(libs.jackson2.databind)
+    testCompileOnly(libs.lombok)
+    testAnnotationProcessor(libs.lombok)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
@@ -32,10 +41,7 @@ dependencies {
 tasks.withType<JavaCompile>().configureEach {
     options.release = 17
     options.encoding = "UTF-8"
-}
-
-application {
-    mainClass = "com.nagad.npsb.Application"
+    options.compilerArgs.addAll(listOf("-parameters"))
 }
 
 // The settings every test run gets: an in-memory H2 database (never MySQL), no .env (NPSB_ENV_FILE=none),
@@ -93,20 +99,12 @@ val contractTest = tasks.register<Test>("contractTest") {
 }
 tasks.check { dependsOn(contractTest) }
 
-// The thin jar is only an intermediate; the one to run is the shadow jar below
-tasks.jar {
-    archiveClassifier = "plain"
+// one runnable jar with all dependencies: build/libs/npsb-backend.jar
+tasks.bootJar {
+    archiveFileName = "npsb-backend.jar"
 }
 
-// one runnable jar with all dependencies: build/libs/npsb-backend.jar
-tasks.shadowJar {
-    archiveFileName = "npsb-backend.jar"
-    // Like maven-shade: service files from every jar are merged (keeps both JDBC drivers, the mail providers, ...);
-    // any other duplicate file keeps the first copy.
-    duplicatesStrategy = DuplicatesStrategy.INCLUDE
-    mergeServiceFiles()
-    filesNotMatching("META-INF/services/**") {
-        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    }
-    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+// the plain (library) jar is not needed
+tasks.jar {
+    enabled = false
 }

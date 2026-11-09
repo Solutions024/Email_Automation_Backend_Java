@@ -1,7 +1,7 @@
 package com.nagad.npsb.service;
 
-import com.nagad.npsb.Py;
-import com.nagad.npsb.models.Transaction;
+import com.nagad.npsb.util.Py;
+import com.nagad.npsb.entity.Transaction;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.DataValidation;
@@ -396,21 +396,21 @@ public final class ExcelParser {
                 continue;
             }
             Transaction t = new Transaction();
-            t.excelRow = excelRow;
-            t.rrn = rrn;
-            t.approvalDate = approvalDate;
-            t.approvalDatetimeText = Py.isEmpty(datetimeText) ? null : datetimeText;
-            t.txnDatetime = txnDatetime;
-            t.txnType = values.get("txn_type");
-            t.txnId = Py.isEmpty(values.get("txn_id")) ? null : values.get("txn_id");
-            t.status = values.get("first_txn_status_name");
-            t.amount = amount;
-            t.fromAccountName = Py.isEmpty(values.get("fromac_name")) ? null : values.get("fromac_name");
-            t.toAccountType = Py.isEmpty(values.get("toac_type")) ? null : values.get("toac_type");
-            t.stan = values.get("org_txn_stan");
-            t.partnerName = values.get("key_org_nm");
-            t.orgCode = values.get("npsb_org_code");
-            t.mailType = mailType;
+            t.setExcelRow(excelRow);
+            t.setRrn(rrn);
+            t.setApprovalDate(approvalDate);
+            t.setApprovalDatetimeText(Py.isEmpty(datetimeText) ? null : datetimeText);
+            t.setTxnDatetime(txnDatetime);
+            t.setTxnType(values.get("txn_type"));
+            t.setTxnId(Py.isEmpty(values.get("txn_id")) ? null : values.get("txn_id"));
+            t.setStatus(values.get("first_txn_status_name"));
+            t.setAmount(amount);
+            t.setFromAccountName(Py.isEmpty(values.get("fromac_name")) ? null : values.get("fromac_name"));
+            t.setToAccountType(Py.isEmpty(values.get("toac_type")) ? null : values.get("toac_type"));
+            t.setStan(values.get("org_txn_stan"));
+            t.setPartnerName(values.get("key_org_nm"));
+            t.setOrgCode(values.get("npsb_org_code"));
+            t.setMailType(mailType);
             valid.add(t);
         }
         return new Parsed(table.rows.size(), valid, rowErrors);

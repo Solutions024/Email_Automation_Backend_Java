@@ -1,15 +1,20 @@
 package com.nagad.npsb.service;
 
-import com.nagad.npsb.Config;
-import com.nagad.npsb.Py;
-import com.nagad.npsb.PyJson;
-import com.nagad.npsb.db.Db;
-import com.nagad.npsb.models.ChangeRequest;
-import com.nagad.npsb.models.User;
-import com.nagad.npsb.web.ApiError;
+import com.nagad.npsb.config.LiveSettings;
+import com.nagad.npsb.entity.ChangeRequest;
+import com.nagad.npsb.entity.User;
+import com.nagad.npsb.repository.ChangeRequestRepository;
+import com.nagad.npsb.service.support.SqlRows;
+import com.nagad.npsb.util.Py;
+import com.nagad.npsb.util.PyJson;
+import com.nagad.npsb.web.ApiException;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Maker-checker for configuration: users' changes to email templates and template variables wait until an
@@ -25,8 +30,8 @@ import java.util.Map;
  * The API registers, for each kind of thing, how to read its current state (snapshot) and how to apply
  * each action.
  */
-public final class Approvals {
-    private Approvals() {}
+@Service
+public class Approvals {
 
     public static final Map<String, String> ENTITY_LABELS = Map.of("partner", "Partner", "template", "Email template",
             "variable", "Template variable", "settings", "System Settings");
@@ -36,20 +41,31 @@ public final class Approvals {
     @FunctionalInterface
     public interface Snapshot {
         /** The current state (null: it no longer exists). */
-        Map<String, Object> of(Db db, int id);
+        Map<String, Object> of(int id);
     }
 
     @FunctionalInterface
     public interface Apply {
-        Integer apply(Db db, Map<String, Object> after, Integer id, String by);
+        Integer apply(Map<String, Object> after, Integer id, String by);
     }
 
     private record Kind(Snapshot snapshot, Map<String, Apply> apply) {}
 
-    private static final Map<String, Kind> KINDS = new LinkedHashMap<>();
+    /** Registered by the owners of each kind of thing (at startup, @PostConstruct). */
+    private final Map<String, Kind> kinds = new ConcurrentHashMap<>();
 
-    public static void register(String entity, Snapshot snapshot, Map<String, Apply> apply) {
-        KINDS.put(entity, new Kind(snapshot, apply));
+    private final LiveSettings live;
+    private final ChangeRequestRepository changeRequests;
+    private final JdbcClient jdbc;
+
+    public Approvals(LiveSettings live, ChangeRequestRepository changeRequests, JdbcClient jdbc) {
+        this.live = live;
+        this.changeRequests = changeRequests;
+        this.jdbc = jdbc;
+    }
+
+    public void register(String entity, Snapshot snapshot, Map<String, Apply> apply) {
+        kinds.put(entity, new Kind(snapshot, apply));
     }
 
     private static String json(Object value) {
@@ -61,8 +77,8 @@ public final class Approvals {
     }
 
     /** Active admins who could approve a request made by this user. */
-    public static long otherAdmins(Db db, String username) {
-        return db.count("SELECT COUNT(*) FROM users WHERE `role` = 'admin' AND is_active = ? AND username != ?", true, username);
+    public long otherAdmins(String username) {
+        return SqlRows.count(jdbc, "SELECT COUNT(*) FROM users WHERE `role` = 'admin' AND is_active = ? AND username != ?", true, username);
     }
 
     /** Changed directly by users, never held for approval (still kept in the change history). */
@@ -71,119 +87,127 @@ public final class Approvals {
     /**
      * A change made by `user`. With maker-checker on it waits for approval, else it is applied now.
      * Partners (DIRECT) are always applied now. The caller has already checked that the change is valid.
+     * Committed when it returns (an error rolls everything back).
      */
-    public static Map<String, Object> submit(Db db, User user, String entity, String action, Integer entityId, String summary,
-                                             Map<String, Object> after) {
-        Kind kind = KINDS.get(entity);
+    @Transactional
+    public Map<String, Object> submit(User user, String entity, String action, Integer entityId, String summary,
+                                      Map<String, Object> after) {
+        Kind kind = kinds.get(entity);
         // applied now: partners, maker-checker off, or an admin's own change (admins' changes need no approval for now)
-        boolean direct = DIRECT.contains(entity) || !Config.MAKER_CHECKER() || "admin".equals(user.role);
-        Map<String, Object> before = entityId != null ? kind.snapshot().of(db, entityId) : null;
-        if (entityId != null && before == null) throw new ApiError(404, label(entity) + " not found.");
+        boolean direct = DIRECT.contains(entity) || !live.makerChecker() || "admin".equals(user.getRole());
+        Map<String, Object> before = entityId != null ? kind.snapshot().of(entityId) : null;
+        if (entityId != null && before == null) throw new ApiException(404, label(entity) + " not found.");
         // an older request still waiting can't be approved after a direct change (its "before" no longer matches)
-        if (!direct && entityId != null && db.first(ChangeRequest.class, "WHERE t.entity = ? AND t.entity_id = ? AND t.status = 'pending'",
-                entity, entityId) != null) {
-            throw new ApiError(409, "A change to this " + label(entity).toLowerCase(java.util.Locale.ROOT)
+        if (!direct && entityId != null && SqlRows.scalar(jdbc,
+                "SELECT t.id FROM change_requests t WHERE t.entity = ? AND t.entity_id = ? AND t.status = 'pending' LIMIT 1", entity, entityId) != null) {
+            throw new ApiException(409, "A change to this " + label(entity).toLowerCase(java.util.Locale.ROOT)
                     + " is already waiting for approval. Wait for it to be approved or rejected, or cancel it.");
         }
         ChangeRequest request = new ChangeRequest();
-        request.entity = entity;
-        request.entityId = entityId;
-        request.action = action;
-        request.summary = Py.cut(summary, 255);
-        request.before = json(before);
-        request.after = json(after);
-        request.requestedBy = user.username;
+        request.setEntity(entity);
+        request.setEntityId(entityId);
+        request.setAction(action);
+        request.setSummary(Py.cut(summary, 255));
+        request.setBefore(json(before));
+        request.setAfter(json(after));
+        request.setRequestedBy(user.getUsername());
         if (direct) {
-            request.entityId = kind.apply().get(action).apply(db, after == null ? new LinkedHashMap<>() : after, entityId, user.username);
-            request.status = "applied";
-            request.decidedBy = user.username;
-            request.decidedAt = Py.now();
-            db.add(request);
-            db.commit();
-            return Py.map("applied", true, "pending", false, "request_id", request.id);
+            request.setEntityId(kind.apply().get(action).apply(after == null ? new LinkedHashMap<>() : after, entityId, user.getUsername()));
+            request.setStatus("applied");
+            request.setDecidedBy(user.getUsername());
+            request.setDecidedAt(Py.now());
+            changeRequests.save(request);
+            return Py.map("applied", true, "pending", false, "request_id", request.getId());
         }
-        db.add(request);
-        db.commit();
-        return Py.map("applied", false, "pending", true, "request_id", request.id,
-                "approvers_available", otherAdmins(db, user.username) > 0);
+        changeRequests.save(request);
+        return Py.map("applied", false, "pending", true, "request_id", request.getId(),
+                "approvers_available", otherAdmins(user.getUsername()) > 0);
     }
 
-    /** A change that was applied directly (System Settings): history only. */
-    public static void record(Db db, String entity, String action, String summary, Object before, Object after, String username) {
+    /**
+     * A change that was applied directly (System Settings): history only. Written in the caller's transaction
+     * (it is committed with the change it records).
+     */
+    @Transactional
+    public void record(String entity, String action, String summary, Object before, Object after, String username) {
         var now = Py.now();
         ChangeRequest r = new ChangeRequest();
-        r.entity = entity;
-        r.action = action;
-        r.summary = Py.cut(summary, 255);
-        r.before = json(before);
-        r.after = json(after);
-        r.status = "applied";
-        r.requestedBy = username;
-        r.requestedAt = now;
-        r.decidedBy = username;
-        r.decidedAt = now;
-        db.add(r);
+        r.setEntity(entity);
+        r.setAction(action);
+        r.setSummary(Py.cut(summary, 255));
+        r.setBefore(json(before));
+        r.setAfter(json(after));
+        r.setStatus("applied");
+        r.setRequestedBy(username);
+        r.setRequestedAt(now);
+        r.setDecidedBy(username);
+        r.setDecidedAt(now);
+        changeRequests.save(r);
     }
 
-    public static ChangeRequest getPending(Db db, int requestId) {
-        ChangeRequest request = db.get(ChangeRequest.class, requestId);
-        if (request == null) throw new ApiError(404, "Request not found.");
-        if (!"pending".equals(request.status)) throw new ApiError(409, "This request was already " + request.status + ".");
+    public ChangeRequest getPending(int requestId) {
+        ChangeRequest request = changeRequests.findById(requestId).orElse(null);
+        if (request == null) throw new ApiException(404, "Request not found.");
+        if (!"pending".equals(request.getStatus())) throw new ApiException(409, "This request was already " + request.getStatus() + ".");
         return request;
     }
 
-    public static ChangeRequest approve(Db db, int requestId, User admin) {
-        ChangeRequest request = getPending(db, requestId);
-        Kind kind = KINDS.get(request.entity);
-        String what = label(request.entity).toLowerCase(java.util.Locale.ROOT);
-        if (request.entityId != null) {
-            Map<String, Object> current = kind.snapshot().of(db, request.entityId);
-            if (current == null) throw new ApiError(409, "This " + what + " no longer exists. Reject the request.");
-            if (!java.util.Objects.equals(json(current), request.before)) {
-                throw new ApiError(409, "This " + what + " was changed after the request was made. Reject it and ask for the change again.");
+    /** Committed when it returns (an error rolls everything back). */
+    @Transactional
+    public ChangeRequest approve(int requestId, User admin) {
+        ChangeRequest request = getPending(requestId);
+        Kind kind = kinds.get(request.getEntity());
+        String what = label(request.getEntity()).toLowerCase(java.util.Locale.ROOT);
+        if (request.getEntityId() != null) {
+            Map<String, Object> current = kind.snapshot().of(request.getEntityId());
+            if (current == null) throw new ApiException(409, "This " + what + " no longer exists. Reject the request.");
+            if (!java.util.Objects.equals(json(current), request.getBefore())) {
+                throw new ApiException(409, "This " + what + " was changed after the request was made. Reject it and ask for the change again.");
             }
         }
-        Map<String, Object> after = Py.isEmpty(request.after) ? new LinkedHashMap<>() : PyJson.loadsMap(request.after);
-        request.entityId = kind.apply().get(request.action).apply(db, after, request.entityId, request.requestedBy);  // may raise 400
-        request.status = "approved";
-        request.decidedBy = admin.username;
-        request.decidedAt = Py.now();
-        db.commit();
+        Map<String, Object> after = Py.isEmpty(request.getAfter()) ? new LinkedHashMap<>() : PyJson.loadsMap(request.getAfter());
+        request.setEntityId(kind.apply().get(request.getAction()).apply(after, request.getEntityId(), request.getRequestedBy()));  // may raise 400
+        request.setStatus("approved");
+        request.setDecidedBy(admin.getUsername());
+        request.setDecidedAt(Py.now());
         return request;
     }
 
-    public static ChangeRequest reject(Db db, int requestId, User admin, String note) {
-        ChangeRequest request = getPending(db, requestId);
-        request.status = "rejected";
-        request.decidedBy = admin.username;
-        request.decidedAt = Py.now();
+    /** Committed when it returns. */
+    @Transactional
+    public ChangeRequest reject(int requestId, User admin, String note) {
+        ChangeRequest request = getPending(requestId);
+        request.setStatus("rejected");
+        request.setDecidedBy(admin.getUsername());
+        request.setDecidedAt(Py.now());
         String n = Py.cut(Py.strip(note), 500);
-        request.note = n.isEmpty() ? null : n;
-        db.commit();
+        request.setNote(n.isEmpty() ? null : n);
         return request;
     }
 
-    public static ChangeRequest cancel(Db db, int requestId, User user) {
-        ChangeRequest request = getPending(db, requestId);
-        if (!request.requestedBy.equals(user.username)) throw new ApiError(403, "Only the person who asked for this change can cancel it.");
-        request.status = "cancelled";
-        request.decidedBy = user.username;
-        request.decidedAt = Py.now();
-        db.commit();
+    /** Committed when it returns. */
+    @Transactional
+    public ChangeRequest cancel(int requestId, User user) {
+        ChangeRequest request = getPending(requestId);
+        if (!request.getRequestedBy().equals(user.getUsername())) throw new ApiException(403, "Only the person who asked for this change can cancel it.");
+        request.setStatus("cancelled");
+        request.setDecidedBy(user.getUsername());
+        request.setDecidedAt(Py.now());
         return request;
     }
 
     public static Map<String, Object> toDict(ChangeRequest r, Map<String, String> names, User me) {
         return Py.map(
-                "id", r.id, "entity", r.entity, "entity_label", label(r.entity),
-                "entity_id", r.entityId, "action", r.action, "action_label", ACTION_LABELS.getOrDefault(r.action, r.action),
-                "summary", r.summary, "status", r.status,
-                "before", Py.isEmpty(r.before) ? null : PyJson.loads(r.before), "after", Py.isEmpty(r.after) ? null : PyJson.loads(r.after),
-                "requested_by", r.requestedBy, "requested_by_name", names.getOrDefault(r.requestedBy, r.requestedBy),
-                "requested_at", Py.iso(r.requestedAt),
-                "decided_by_name", r.decidedBy != null ? names.getOrDefault(r.decidedBy, r.decidedBy) : null,
-                "decided_at", Py.iso(r.decidedAt), "note", r.note,
-                "can_approve", me != null && "admin".equals(me.role) && "pending".equals(r.status),
-                "can_cancel", me != null && "pending".equals(r.status) && r.requestedBy.equals(me.username));
+                "id", r.getId(), "entity", r.getEntity(), "entity_label", label(r.getEntity()),
+                "entity_id", r.getEntityId(), "action", r.getAction(), "action_label", ACTION_LABELS.getOrDefault(r.getAction(), r.getAction()),
+                "summary", r.getSummary(), "status", r.getStatus(),
+                "before", Py.isEmpty(r.getBefore()) ? null : PyJson.loads(r.getBefore()),
+                "after", Py.isEmpty(r.getAfter()) ? null : PyJson.loads(r.getAfter()),
+                "requested_by", r.getRequestedBy(), "requested_by_name", names.getOrDefault(r.getRequestedBy(), r.getRequestedBy()),
+                "requested_at", Py.iso(r.getRequestedAt()),
+                "decided_by_name", r.getDecidedBy() != null ? names.getOrDefault(r.getDecidedBy(), r.getDecidedBy()) : null,
+                "decided_at", Py.iso(r.getDecidedAt()), "note", r.getNote(),
+                "can_approve", me != null && "admin".equals(me.getRole()) && "pending".equals(r.getStatus()),
+                "can_cancel", me != null && "pending".equals(r.getStatus()) && r.getRequestedBy().equals(me.getUsername()));
     }
 }

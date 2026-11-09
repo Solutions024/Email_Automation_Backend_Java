@@ -1,68 +1,65 @@
 package com.nagad.npsb.api;
 
-import com.nagad.npsb.Config;
-import com.nagad.npsb.PyJson;
-import com.nagad.npsb.db.Database;
-import com.nagad.npsb.db.Db;
-import com.nagad.npsb.models.User;
-import com.nagad.npsb.service.Seed;
-import com.nagad.npsb.service.ServerSettings;
-import com.nagad.npsb.web.Server;
+import com.nagad.npsb.NpsbApplication;
+import com.nagad.npsb.entity.User;
+import com.nagad.npsb.repository.UserRepository;
+import com.nagad.npsb.security.JwtService;
+import com.nagad.npsb.util.PyJson;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.transaction.support.TransactionTemplate;
 
-import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
- * The real backend (routes, auth, SQL) on a free local port, against the in-memory H2 database the test run
- * is started with (DATABASE_URL=jdbc:h2:mem:...; see backend/README.md "Tests"). Never touches MySQL.
+ * The real backend (Spring Boot: routes, security, JPA) on a free local port, against the in-memory H2 database the
+ * test run is started with (DATABASE_URL=jdbc:h2:mem:...; see build.gradle.kts). Never touches MySQL.
  * Started once per test run and shared by every test class.
  */
 public final class ApiTestServer {
     private ApiTestServer() {}
 
     private static String base;
+    private static ConfigurableApplicationContext context;
     private static final HttpClient HTTP = HttpClient.newHttpClient();
 
-    public static synchronized String url() throws Exception {
+    public static synchronized String url() {
         if (base != null) return base;
-        if (!Config.DATABASE_URL.startsWith("jdbc:h2:mem:")) {
+        String database = System.getenv("DATABASE_URL");
+        if (database == null || !database.startsWith("jdbc:h2:mem:")) {
             throw new IllegalStateException("Tests must run against an in-memory H2 database (DATABASE_URL=jdbc:h2:mem:...), not "
-                    + (Config.DATABASE_URL.isEmpty() ? "the MySQL database in .env" : Config.DATABASE_URL));
+                    + (database == null || database.isEmpty() ? "the MySQL database in .env" : database));
         }
-        Database.createTables();
-        try (Db db = Db.open()) {
-            Seed.seedTemplates(db);
-            ServerSettings.load(db);
-            Auth.ensureBuiltInAdmin(db);
-        }
-        int port;
-        try (ServerSocket s = new ServerSocket(0)) {
-            port = s.getLocalPort();
-        }
-        Server server = new Server();
-        Health.routes(server);
-        Auth.routes(server);
-        com.nagad.npsb.api.Users.routes(server);
-        MainApi.routes(server);
-        Answers.routes(server);
-        server.start("127.0.0.1", port);
-        Health.markStarted();
-        base = "http://127.0.0.1:" + port;
+        context = new SpringApplicationBuilder(NpsbApplication.class)
+                // no background jobs (automatic follow-ups, mailbox check), as before
+                .properties("server.port=0", "server.address=127.0.0.1", "npsb.jobs.enabled=false")
+                .run();
+        base = "http://127.0.0.1:" + context.getEnvironment().getProperty("local.server.port");
         return base;
+    }
+
+    /** A bean of the running backend (repositories, services...). */
+    public static <T> T bean(Class<T> type) {
+        url();
+        return context.getBean(type);
+    }
+
+    /** Run database work in its own transaction (like the old "try (Db db = Db.open()) { ... db.commit(); }"). */
+    public static <T> T inTransaction(Supplier<T> work) {
+        return bean(TransactionTemplate.class).execute(status -> work.get());
     }
 
     /** A signed-in session for this user (the real access token the login endpoint would give). */
     public static String tokenFor(String username) {
-        try (Db db = Db.open()) {
-            User u = db.first(User.class, "WHERE t.username = ?", username);
-            if (u == null) throw new IllegalStateException("No user " + username);
-            return Auth.createAccessToken(u);
-        }
+        User u = bean(UserRepository.class).findByUsername(username)
+                .orElseThrow(() -> new IllegalStateException("No user " + username));
+        return bean(JwtService.class).createAccessToken(u);
     }
 
     public record Response(int status, String body) {

@@ -1,8 +1,9 @@
 package com.nagad.npsb.service;
 
-import com.nagad.npsb.Config;
-import com.nagad.npsb.Py;
-import com.nagad.npsb.web.ApiError;
+import com.nagad.npsb.config.LiveSettings;
+import com.nagad.npsb.util.Py;
+import com.nagad.npsb.web.ApiException;
+import org.springframework.stereotype.Service;
 
 import javax.naming.CommunicationException;
 import javax.naming.NameNotFoundException;
@@ -29,8 +30,14 @@ import java.util.regex.Pattern;
  *   2. In Auth: a 6-digit code is emailed to the address and must be entered. That is the only way to
  *      prove the mailbox itself exists and belongs to the person.
  */
-public final class EmailCheck {
-    private EmailCheck() {}
+@Service
+public class EmailCheck {
+
+    private final LiveSettings live;
+
+    public EmailCheck(LiveSettings live) {
+        this.live = live;
+    }
 
     private static final Pattern EMAIL_RE = Pattern.compile(
             "(?=.{6,254}$)"
@@ -49,7 +56,7 @@ public final class EmailCheck {
             "example.com", "example.org", "example.net", "test.com");
 
     private record Cached(long at, boolean ok) {}
-    private static final Map<String, Cached> CACHE = new ConcurrentHashMap<>();  // domain -> (checked at, can receive mail)
+    private final Map<String, Cached> cache = new ConcurrentHashMap<>();  // domain -> (checked at, can receive mail)
     private static final long CACHE_NANOS = 3600L * 1_000_000_000L;
 
     private static class DnsTimeout extends Exception {}
@@ -75,8 +82,8 @@ public final class EmailCheck {
     }
 
     /** True if DNS says this domain has somewhere to deliver mail. */
-    public static boolean domainAcceptsMail(String domain) {
-        Cached cached = CACHE.get(domain);
+    public boolean domainAcceptsMail(String domain) {
+        Cached cached = cache.get(domain);
         if (cached != null && System.nanoTime() - cached.at() < CACHE_NANOS) return cached.ok();
         boolean ok;
         try {
@@ -101,26 +108,26 @@ public final class EmailCheck {
         } catch (NameNotFoundException | ServiceUnavailableException e) {
             ok = false;  // NXDOMAIN / no name server answered
         } catch (DnsTimeout e) {
-            throw new ApiError(503, "Could not check the email address right now (DNS timeout). Please try again.");
+            throw new ApiException(503, "Could not check the email address right now (DNS timeout). Please try again.");
         } catch (NamingException e) {
             ok = false;
         }
-        CACHE.put(domain, new Cached(System.nanoTime(), ok));
+        cache.put(domain, new Cached(System.nanoTime(), ok));
         return ok;
     }
 
     /** The normalized address, or 400 explaining why it cannot be used. */
-    public static String validateRealEmail(String email) {
+    public String validateRealEmail(String email) {
         email = Py.strip(email).toLowerCase();
-        if (!EMAIL_RE.matcher(email).matches()) throw new ApiError(400, "Enter a valid email address.");
+        if (!EMAIL_RE.matcher(email).matches()) throw new ApiException(400, "Enter a valid email address.");
         String domain = email.substring(email.lastIndexOf('@') + 1);
         for (String d : DISPOSABLE_DOMAINS) {
             if (domain.equals(d) || domain.endsWith("." + d)) {
-                throw new ApiError(400, "Disposable or example email addresses are not allowed. Use your real email.");
+                throw new ApiException(400, "Disposable or example email addresses are not allowed. Use your real email.");
             }
         }
-        if (Config.EMAIL_DNS_CHECK() && !domainAcceptsMail(domain)) {
-            throw new ApiError(400, "The email domain \"" + domain + "\" does not exist or cannot receive email.");
+        if (live.emailDnsCheck() && !domainAcceptsMail(domain)) {
+            throw new ApiException(400, "The email domain \"" + domain + "\" does not exist or cannot receive email.");
         }
         return email;
     }

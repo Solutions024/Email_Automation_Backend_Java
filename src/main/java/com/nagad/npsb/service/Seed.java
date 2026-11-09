@@ -1,18 +1,20 @@
 package com.nagad.npsb.service;
 
-import com.nagad.npsb.Py;
-import com.nagad.npsb.db.Db;
-import com.nagad.npsb.models.EmailTemplate;
-import com.nagad.npsb.models.Partner;
-import com.nagad.npsb.models.PartnerEmail;
+import com.nagad.npsb.entity.EmailTemplate;
+import com.nagad.npsb.entity.Partner;
+import com.nagad.npsb.entity.PartnerEmail;
+import com.nagad.npsb.repository.EmailTemplateRepository;
+import com.nagad.npsb.repository.PartnerEmailRepository;
+import com.nagad.npsb.repository.PartnerRepository;
+import com.nagad.npsb.util.Py;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
 /** The standard email templates of a new database (and demo partners, for trying the app out). */
-public final class Seed {
-    private Seed() {}
+@Service
+public class Seed {
 
     /** Demo partners for a new, empty database: the partners in the sample file, matched by name (KEY_ORG_NM) */
     private static final Object[][] DEMO_PARTNERS = {
@@ -22,39 +24,48 @@ public final class Seed {
         // UPAY is in the sample file but intentionally NOT configured -> "no partner with this name"
     };
 
-    /** A new database gets the two standard templates, as the defaults. */
-    public static void seedTemplates(Db db) {
-        if (db.count("SELECT COUNT(*) FROM email_templates") > 0) return;
-        for (Map.Entry<String, EmailService.DefaultTemplate> e : EmailService.DEFAULT_TEMPLATES.entrySet()) {
-            EmailTemplate t = new EmailTemplate();
-            t.name = e.getValue().name();
-            t.mailType = e.getKey();
-            t.subject = e.getValue().subject();
-            t.bodyHtml = Py.strip(e.getValue().bodyHtml());
-            t.description = "Standard wording (docs/Email_Template.docx)";
-            t.isDefault = true;
-            db.add(t);
-        }
-        db.commit();
+    private final EmailTemplateRepository templates;
+    private final PartnerRepository partners;
+    private final PartnerEmailRepository partnerEmails;
+
+    public Seed(EmailTemplateRepository templates, PartnerRepository partners, PartnerEmailRepository partnerEmails) {
+        this.templates = templates;
+        this.partners = partners;
+        this.partnerEmails = partnerEmails;
     }
 
-    public static void seedPartners(Db db) {
-        if (db.count("SELECT COUNT(*) FROM partners") > 0) return;
+    /** A new database gets the two standard templates, as the defaults (committed). */
+    @Transactional
+    public void seedTemplates() {
+        if (templates.count() > 0) return;
+        for (Map.Entry<String, EmailService.DefaultTemplate> e : EmailService.DEFAULT_TEMPLATES.entrySet()) {
+            EmailTemplate t = new EmailTemplate();
+            t.setName(e.getValue().name());
+            t.setMailType(e.getKey());
+            t.setSubject(e.getValue().subject());
+            t.setBodyHtml(Py.strip(e.getValue().bodyHtml()));
+            t.setDescription("Standard wording (docs/Email_Template.docx)");
+            t.setIsDefault(true);
+            templates.save(t);
+        }
+    }
+
+    /** Demo partners for a new, empty database (committed). */
+    @Transactional
+    public void seedPartners() {
+        if (partners.count() > 0) return;
         for (Object[] p : DEMO_PARTNERS) {
             Partner partner = new Partner();
-            partner.name = (String) p[0];
-            partner.isActive = (Boolean) p[1];
-            db.add(partner);
-            db.flush();
-            List<PartnerEmail> emails = new ArrayList<>();
+            partner.setName((String) p[0]);
+            partner.setIsActive((Boolean) p[1]);
+            partners.save(partner);  // inserted now: its id is set
             for (Object[] e : (Object[][]) p[2]) {
                 PartnerEmail pe = new PartnerEmail();
-                pe.email = (String) e[0];
-                pe.isActive = (Boolean) e[1];
-                emails.add(pe);
+                pe.setEmail((String) e[0]);
+                pe.setIsActive((Boolean) e[1]);
+                pe.setPartnerId(partner.getId());
+                partnerEmails.save(pe);
             }
-            partner.replaceEmails(emails);
         }
-        db.commit();
     }
 }

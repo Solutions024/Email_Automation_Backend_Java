@@ -1,22 +1,28 @@
 package com.nagad.npsb.service;
 
-import com.nagad.npsb.Config;
-import com.nagad.npsb.Crypto;
-import com.nagad.npsb.Py;
-import com.nagad.npsb.PyJson;
-import com.nagad.npsb.db.Db;
-import com.nagad.npsb.models.AppSetting;
+import com.nagad.npsb.config.LiveSettings;
+import com.nagad.npsb.config.NpsbProperties;
+import com.nagad.npsb.entity.AppSetting;
+import com.nagad.npsb.repository.AppSettingRepository;
+import com.nagad.npsb.util.Crypto;
+import com.nagad.npsb.util.Py;
+import com.nagad.npsb.util.PyJson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 /**
@@ -24,16 +30,15 @@ import java.util.regex.Pattern;
  *
  * Each setting starts with its .env value. Once an admin saves it, it is stored in app_settings
  * (key "server.NAME") and applied to the running server at once: the code reads these values from
- * Config every time it uses them. Passwords and the admin code are stored encrypted with a key made
+ * LiveSettings every time it uses them. Passwords and the admin code are stored encrypted with a key made
  * from JWT_SECRET (if JWT_SECRET changes, they can no longer be read and the .env value is used).
  *
  * Not here, because they can't change while the server runs: the database connection, JWT_SECRET,
  * APP_BASE_URL and COOKIE_SECURE.
  */
-public final class ServerSettings {
-    private ServerSettings() {}
-
-    private static final Logger LOG = Logger.getLogger("npsb");
+@Service
+public class ServerSettings {
+    private static final Logger LOG = LoggerFactory.getLogger("npsb");
 
     public static final String PREFIX = "server.";
     private static final Pattern HOST_RE = Pattern.compile("^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$");
@@ -128,27 +133,46 @@ public final class ServerSettings {
     private static final Set<String> OBSOLETE = Set.of("MS_TENANT_ID", "MS_CLIENT_ID", "MS_CLIENT_SECRET", "MS_MAILBOX", "MS_FOLDER");
 
     /** The .env values, kept before anything is changed. */
-    public static final Map<String, Object> ENV_VALUES = new LinkedHashMap<>();
-    static {
-        for (Field f : FIELDS) ENV_VALUES.put(f.name(), Config.get(f.name()));
-    }
-    private static final Set<String> UNREADABLE = java.util.Collections.synchronizedSet(new HashSet<>());
+    private final Map<String, Object> envValues;
+    /** Saved settings that could not be read at startup (the .env value is used). */
+    private final Set<String> unreadable = Collections.synchronizedSet(new HashSet<>());
 
     public static final class SettingsError extends RuntimeException {
         public SettingsError(String message) { super(message); }
     }
 
-    // ---------------------------------------------------------------- encryption of secrets
+    private final LiveSettings live;
+    private final NpsbProperties properties;
+    private final AppSettingRepository appSettings;
+    private final TransactionTemplate transactionTemplate;
 
-    private static byte[] key() {
-        return Crypto.sha256(("npsb-server-settings:" + Config.JWT_SECRET).getBytes(StandardCharsets.UTF_8));
+    public ServerSettings(LiveSettings live, NpsbProperties properties, AppSettingRepository appSettings,
+                          TransactionTemplate transactionTemplate) {
+        this.live = live;
+        this.properties = properties;
+        this.appSettings = appSettings;
+        this.transactionTemplate = transactionTemplate;
+        Map<String, Object> env = new LinkedHashMap<>();
+        for (Field f : FIELDS) env.put(f.name(), live.get(f.name()));  // before load() applies the saved values
+        envValues = Collections.unmodifiableMap(env);
     }
 
-    private static String encrypt(String value) {
+    /** The .env values, kept before anything is changed (ServerSettings.ENV_VALUES in the old code). */
+    public Map<String, Object> envValues() {
+        return envValues;
+    }
+
+    // ---------------------------------------------------------------- encryption of secrets
+
+    private byte[] key() {
+        return Crypto.sha256(("npsb-server-settings:" + properties.effectiveJwtSecret()).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String encrypt(String value) {
         return "enc:" + Crypto.fernetEncrypt(key(), value.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static String decrypt(String stored) throws Crypto.InvalidToken {
+    private String decrypt(String stored) throws Crypto.InvalidToken {
         if (!stored.startsWith("enc:")) throw new Crypto.InvalidToken();
         return new String(Crypto.fernetDecrypt(key(), stored.substring(4)), StandardCharsets.UTF_8);
     }
@@ -217,66 +241,70 @@ public final class ServerSettings {
         return text;
     }
 
-    private static Map<String, AppSetting> rows(Db db) {
+    /** The saved System Settings rows (key LIKE 'server.%'), by setting name. */
+    private Map<String, AppSetting> rows() {
         Map<String, AppSetting> out = new LinkedHashMap<>();
-        for (AppSetting r : db.all(AppSetting.class, "WHERE t.`key` LIKE ?", PREFIX + "%")) {
-            String name = r.key.substring(PREFIX.length());
+        for (AppSetting r : appSettings.findAll()) {
+            if (!r.getKey().startsWith(PREFIX)) continue;
+            String name = r.getKey().substring(PREFIX.length());
             if (BY_NAME.containsKey(name)) out.put(name, r);
         }
         return out;
     }
 
     /** At startup: apply every saved setting to the running server. */
-    public static void load(Db db) {
-        UNREADABLE.clear();
-        dropObsolete(db);
-        for (Map.Entry<String, AppSetting> e : rows(db).entrySet()) {
+    public void load() {
+        unreadable.clear();
+        dropObsolete();
+        for (Map.Entry<String, AppSetting> e : rows().entrySet()) {
             String name = e.getKey();
             Field field = BY_NAME.get(name);
             Object value;
             try {
-                Object stored = PyJson.loads(e.getValue().value);
+                Object stored = PyJson.loads(e.getValue().getValue());
                 value = field.kind().equals("secret") ? decrypt((String) stored) : clean(field, stored);
             } catch (Crypto.InvalidToken | RuntimeException ex) {
-                UNREADABLE.add(name);
-                Config.set(name, ENV_VALUES.get(name));
-                LOG.warning("System Settings: the saved " + name + " can't be read; using the .env value");
+                unreadable.add(name);
+                live.set(name, envValues.get(name));
+                LOG.warn("System Settings: the saved " + name + " can't be read; using the .env value");
                 continue;
             }
-            Config.set(name, value);
+            live.set(name, value);
         }
     }
 
     /** Remove saved settings of the old Microsoft 365 provider (and a saved MAIL_PROVIDER=microsoft). */
-    private static void dropObsolete(Db db) {
+    private void dropObsolete() {
         List<String> keys = new ArrayList<>();
         for (String name : OBSOLETE) keys.add(PREFIX + name);
-        boolean dropped = false;
-        for (AppSetting r : db.all(AppSetting.class, "WHERE t.`key` IN " + Db.in(keys), keys.toArray())) {
-            db.delete(r);
-            dropped = true;
-        }
-        AppSetting provider = db.first(AppSetting.class, "WHERE t.`key` = ?", PREFIX + "MAIL_PROVIDER");
-        if (provider != null && "\"microsoft\"".equals(Py.strip(provider.value))) {
-            db.delete(provider);
-            dropped = true;
-        }
+        boolean dropped = Boolean.TRUE.equals(transactionTemplate.execute(status -> {
+            boolean any = false;
+            for (AppSetting r : appSettings.findAllById(keys)) {
+                appSettings.delete(r);
+                any = true;
+            }
+            AppSetting provider = appSettings.findById(PREFIX + "MAIL_PROVIDER").orElse(null);
+            if (provider != null && "\"microsoft\"".equals(Py.strip(provider.getValue()))) {
+                appSettings.delete(provider);
+                any = true;
+            }
+            return any;
+        }));
         if (dropped) {
-            db.commit();
             LOG.info("System Settings: removed the saved Microsoft 365 settings (the app uses Gmail now)");
         }
     }
 
     /** The values in effect, with the given changes / resets applied (nothing is saved). */
-    public static Map<String, Object> effective(Map<String, Object> changes, Collection<String> resets) {
+    public Map<String, Object> effective(Map<String, Object> changes, Collection<String> resets) {
         Map<String, Object> values = new LinkedHashMap<>();
-        for (Field f : FIELDS) values.put(f.name(), Config.get(f.name()));
-        if (resets != null) for (String name : resets) values.put(name, ENV_VALUES.get(name));
+        for (Field f : FIELDS) values.put(f.name(), live.get(f.name()));
+        if (resets != null) for (String name : resets) values.put(name, envValues.get(name));
         if (changes != null) values.putAll(changes);
         return values;
     }
 
-    public static Map<String, Object> effective() {
+    public Map<String, Object> effective() {
         return effective(null, null);
     }
 
@@ -284,8 +312,8 @@ public final class ServerSettings {
     public static Map<String, Object> smtpValues(Map<String, Object> v) {
         if ("gmail".equals(v.get("MAIL_PROVIDER"))) {
             String address = Py.strip((String) v.get("GMAIL_ADDRESS"));
-            return Py.map("host", Config.GMAIL_SMTP_HOST, "port", Config.GMAIL_SMTP_PORT, "use_tls", true, "user", address,
-                    "password", Config.gmailPassword((String) v.get("GMAIL_APP_PASSWORD")));
+            return Py.map("host", LiveSettings.GMAIL_SMTP_HOST, "port", LiveSettings.GMAIL_SMTP_PORT, "use_tls", true, "user", address,
+                    "password", LiveSettings.gmailPassword((String) v.get("GMAIL_APP_PASSWORD")));
         }
         return Py.map("host", v.get("SMTP_HOST"), "port", v.get("SMTP_PORT"), "use_tls", v.get("SMTP_USE_TLS"),
                 "user", v.get("SMTP_USER"), "password", v.get("SMTP_PASSWORD"));
@@ -296,8 +324,8 @@ public final class ServerSettings {
         if ("gmail".equals(v.get("MAIL_PROVIDER"))) {
             String address = Py.strip((String) v.get("GMAIL_ADDRESS"));
             String folder = Py.strip((String) v.get("GMAIL_FOLDER"));
-            return Py.map("host", Config.GMAIL_IMAP_HOST, "port", Config.GMAIL_IMAP_PORT, "user", address,
-                    "password", Config.gmailPassword((String) v.get("GMAIL_APP_PASSWORD")), "folder", folder.isEmpty() ? "INBOX" : folder);
+            return Py.map("host", LiveSettings.GMAIL_IMAP_HOST, "port", LiveSettings.GMAIL_IMAP_PORT, "user", address,
+                    "password", LiveSettings.gmailPassword((String) v.get("GMAIL_APP_PASSWORD")), "folder", folder.isEmpty() ? "INBOX" : folder);
         }
         String host = (String) v.get("IMAP_HOST");
         if (host.isEmpty()) host = Py.strip((String) v.get("SMTP_HOST")).toLowerCase().equals("smtp.gmail.com") ? "imap.gmail.com" : "";
@@ -318,60 +346,61 @@ public final class ServerSettings {
         return new Object[]{changes, resetSet};
     }
 
-    /** Store and apply. Returns the names that actually changed. */
-    public static List<String> save(Db db, Map<String, Object> changes, Set<String> resets, String username) {
-        Map<String, AppSetting> rows = rows(db);
+    /** Store and apply (committed when it returns). Returns the names that actually changed. */
+    @Transactional
+    public List<String> save(Map<String, Object> changes, Set<String> resets, String username) {
+        Map<String, AppSetting> rows = rows();
         var now = Py.now();
         List<String> changed = new ArrayList<>();
         for (String name : resets) {
             if (rows.containsKey(name)) {
-                db.delete(rows.get(name));
+                appSettings.delete(rows.get(name));
                 changed.add(name);
             }
-            Config.set(name, ENV_VALUES.get(name));
-            UNREADABLE.remove(name);
+            live.set(name, envValues.get(name));
+            unreadable.remove(name);
         }
         for (Map.Entry<String, Object> e : changes.entrySet()) {
             String name = e.getKey();
             Object value = e.getValue();
             Field field = BY_NAME.get(name);
-            if (java.util.Objects.equals(Config.get(name), value) && rows.containsKey(name) && !UNREADABLE.contains(name)) continue;
+            if (java.util.Objects.equals(live.get(name), value) && rows.containsKey(name) && !unreadable.contains(name)) continue;
             String stored = PyJson.dumps(field.kind().equals("secret") ? encrypt((String) value) : value);
             AppSetting row = rows.get(name);
-            if (row == null) {
+            boolean added = row == null;
+            if (added) {
                 row = new AppSetting();
-                row.key = PREFIX + name;
-                db.add(row);
+                row.setKey(PREFIX + name);
             }
-            row.value = stored;
-            row.updatedBy = username;
-            row.updatedAt = now;
-            Config.set(name, value);
-            UNREADABLE.remove(name);
+            row.setValue(stored);
+            row.setUpdatedBy(username);
+            row.setUpdatedAt(now);
+            if (added) appSettings.save(row);  // inserted at commit, with these values
+            live.set(name, value);
+            unreadable.remove(name);
             changed.add(name);
         }
-        db.commit();
         return changed;
     }
 
     /** Everything the System Settings page shows. Secrets are never sent, only whether they are set. */
-    public static Map<String, Object> toDict(Db db, Map<String, String> names) {
-        Map<String, AppSetting> rows = rows(db);
+    public Map<String, Object> toDict(Map<String, String> names) {
+        Map<String, AppSetting> rows = rows();
         List<Object> out = new ArrayList<>();
         for (String[] g : PAGE) {
             List<Object> fields = new ArrayList<>();
             for (String name : g[4].split(",")) {
                 Field f = BY_NAME.get(name);
                 AppSetting row = rows.get(f.name());
-                String source = row != null && !UNREADABLE.contains(f.name()) ? "portal" : "env";
+                String source = row != null && !unreadable.contains(f.name()) ? "portal" : "env";
                 List<Object> options = new ArrayList<>();
                 for (String[] o : f.options()) options.add(Py.map("value", o[0], "label", o[1]));
                 Map<String, Object> item = Py.map("name", f.name(), "label", f.label(), "kind", f.kind(), "help", f.help(),
                         "low", f.low(), "high", f.high(), "required", f.required(), "source", source,
-                        "unreadable", UNREADABLE.contains(f.name()), "options", options,
-                        "updated_by_name", row != null ? names.getOrDefault(row.updatedBy, row.updatedBy) : null,
-                        "updated_at", row != null ? Py.iso(row.updatedAt) : null);
-                Object current = Config.get(f.name()), env = ENV_VALUES.get(f.name());
+                        "unreadable", unreadable.contains(f.name()), "options", options,
+                        "updated_by_name", row != null ? names.getOrDefault(row.getUpdatedBy(), row.getUpdatedBy()) : null,
+                        "updated_at", row != null ? Py.iso(row.getUpdatedAt()) : null);
+                Object current = live.get(f.name()), env = envValues.get(f.name());
                 if (f.kind().equals("secret")) {
                     item.put("is_set", truthy(current));
                     item.put("env_is_set", truthy(env));
@@ -383,7 +412,7 @@ public final class ServerSettings {
             }
             out.add(Py.map("id", g[0], "title", g[1], "description", g[2], "provider", g[3], "fields", fields));
         }
-        return Py.map("groups", out, "mail_provider", Config.get("MAIL_PROVIDER"), "secrets_survive_restart", !Config.JWT_SECRET_IS_RANDOM);
+        return Py.map("groups", out, "mail_provider", live.get("MAIL_PROVIDER"), "secrets_survive_restart", !properties.jwtSecretIsRandom());
     }
 
     static boolean truthy(Object v) {
@@ -394,9 +423,9 @@ public final class ServerSettings {
         return true;
     }
 
-    public static List<String> usernames(Db db) {
+    public List<String> usernames() {
         List<String> out = new ArrayList<>();
-        for (AppSetting r : rows(db).values()) if (r.updatedBy != null && !r.updatedBy.isEmpty()) out.add(r.updatedBy);
+        for (AppSetting r : rows().values()) if (r.getUpdatedBy() != null && !r.getUpdatedBy().isEmpty()) out.add(r.getUpdatedBy());
         return out;
     }
 }

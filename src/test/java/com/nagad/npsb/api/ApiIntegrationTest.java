@@ -1,17 +1,23 @@
 package com.nagad.npsb.api;
 
-import com.nagad.npsb.db.Db;
-import com.nagad.npsb.models.ChangeRequest;
-import com.nagad.npsb.models.EmailVerificationCode;
-import com.nagad.npsb.models.User;
+import com.nagad.npsb.entity.ChangeRequest;
+import com.nagad.npsb.entity.EmailVerificationCode;
+import com.nagad.npsb.entity.User;
+import com.nagad.npsb.repository.ChangeRequestRepository;
+import com.nagad.npsb.repository.EmailVerificationCodeRepository;
+import com.nagad.npsb.repository.UserRepository;
 import com.nagad.npsb.service.Approvals;
+import com.nagad.npsb.service.AuthService;
 import com.nagad.npsb.service.ExcelParser;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 
+import static com.nagad.npsb.api.ApiTestServer.bean;
+import static com.nagad.npsb.api.ApiTestServer.inTransaction;
 import static com.nagad.npsb.api.ApiTestServer.send;
 import static com.nagad.npsb.api.ApiTestServer.tokenFor;
 import static com.nagad.npsb.api.ApiTestServer.upload;
@@ -35,12 +41,14 @@ class ApiIntegrationTest {
     }
 
     static void createAccount(String username, String email, String role) throws Exception {
-        try (Db db = Db.open()) {
-            if (db.first(User.class, "WHERE t.username = ?", username) != null) return;
-        }
+        if (bean(UserRepository.class).findByUsername(username).isPresent()) return;
         ApiTestServer.Response r = send("POST", "/api/users", tokenFor("admin"), Map.of("full_name", "Test " + username,
                 "username", username, "email", email, "password", "Str0ng!Passw0rd#", "role", role));
         assertEquals(201, r.status(), r.body());
+    }
+
+    static int userId(String username) {
+        return bean(UserRepository.class).findByUsername(username).orElseThrow().getId();
     }
 
     // ---------------------------------------------------------------- health probes
@@ -68,10 +76,8 @@ class ApiIntegrationTest {
     @Test
     void wrongPasswordIsRefused() throws Exception {
         assertEquals(401, send("POST", "/api/auth/login", null, Map.of("login", "plain.user", "password", "nope")).status());
-        try (Db db = Db.open()) {  // don't leave the account half way to a lock-out for other tests
-            db.execute("UPDATE users SET failed_login_count = 0 WHERE username = 'plain.user'");
-            db.commit();
-        }
+        // don't leave the account half way to a lock-out for other tests
+        inTransaction(() -> bean(JdbcClient.class).sql("UPDATE users SET failed_login_count = 0 WHERE username = 'plain.user'").update());
     }
 
     @Test
@@ -100,25 +106,17 @@ class ApiIntegrationTest {
     @Test
     void builtInAdminCanSetAPasswordAndItWorks() throws Exception {
         createAccount("pw.target", "pw@nagad.com.bd", "user");
-        int id;
-        try (Db db = Db.open()) {
-            id = db.first(User.class, "WHERE t.username = 'pw.target'").id;
-        }
+        int id = userId("pw.target");
         ApiTestServer.Response r = send("PATCH", "/api/users/" + id, admin, Map.of("password", "N3w!Passw0rd#xyz"));
         assertEquals(200, r.status(), r.body());
-        try (Db db = Db.open()) {
-            User u = db.get(User.class, id);
-            assertTrue(Auth.verifyPassword("N3w!Passw0rd#xyz", u.passwordHash));
-        }
+        User u = bean(UserRepository.class).findById(id).orElseThrow();
+        assertTrue(AuthService.verifyPassword("N3w!Passw0rd#xyz", u.getPasswordHash()));
         assertEquals(400, send("PATCH", "/api/users/" + id, admin, Map.of("password", "weak")).status());
     }
 
     @Test
     void builtInAdminCannotBeDemotedOrDeactivated() throws Exception {
-        int id;
-        try (Db db = Db.open()) {
-            id = db.first(User.class, "WHERE t.username = 'admin'").id;
-        }
+        int id = userId("admin");
         assertEquals(400, send("PATCH", "/api/users/" + id, admin, Map.of("is_active", false)).status());
     }
 
@@ -133,14 +131,15 @@ class ApiIntegrationTest {
         assertEquals(200, send("POST", "/api/auth/forgot-password", null, Map.of("email", "nobody@nagad.com.bd")).status());
 
         // the code is emailed (no mail server here): put a known code in its place
-        try (Db db = Db.open()) {
-            User u = db.first(User.class, "WHERE t.username = 'forgetful'");
-            EmailVerificationCode c = db.first(EmailVerificationCode.class,
-                    "WHERE t.user_id = ? AND t.purpose = 'reset' AND t.used_at IS NULL ORDER BY t.id DESC", u.id);
+        inTransaction(() -> {
+            User u = bean(UserRepository.class).findByUsername("forgetful").orElseThrow();
+            EmailVerificationCode c = bean(EmailVerificationCodeRepository.class).findAll().stream()
+                    .filter(x -> x.getUserId().equals(u.getId()) && "reset".equals(x.getPurpose()) && x.getUsedAt() == null)
+                    .max(java.util.Comparator.comparing(EmailVerificationCode::getId)).orElse(null);
             assertNotNull(c, "a reset code is stored");
-            c.codeHash = Auth.codeHash(u, "reset", "123456");
-            db.commit();
-        }
+            c.setCodeHash(AuthService.codeHash(u, "reset", "123456"));
+            return bean(EmailVerificationCodeRepository.class).save(c);
+        });
         Map<String, Object> wrong = Map.of("email", "forgetful@nagad.com.bd", "code", "000000", "new_password", "Br4nd!New#Pass");
         ApiTestServer.Response bad = send("POST", "/api/auth/reset-password", null, wrong);
         assertEquals(400, bad.status());
@@ -148,9 +147,8 @@ class ApiIntegrationTest {
 
         Map<String, Object> right = Map.of("email", "forgetful@nagad.com.bd", "code", "123456", "new_password", "Br4nd!New#Pass");
         assertEquals(200, send("POST", "/api/auth/reset-password", null, right).status());
-        try (Db db = Db.open()) {
-            assertTrue(Auth.verifyPassword("Br4nd!New#Pass", db.first(User.class, "WHERE t.username = 'forgetful'").passwordHash));
-        }
+        assertTrue(AuthService.verifyPassword("Br4nd!New#Pass",
+                bean(UserRepository.class).findByUsername("forgetful").orElseThrow().getPasswordHash()));
         // a code works once
         assertEquals(400, send("POST", "/api/auth/reset-password", null, right).status());
     }
@@ -197,31 +195,27 @@ class ApiIntegrationTest {
         assertEquals(Boolean.TRUE, result.get("pending"));
 
         // the same kind of change made by an admin is applied straight away
-        try (Db db = Db.open()) {
-            User a = db.first(User.class, "WHERE t.username = 'other.admin'");
-            Map<String, Object> applied = Approvals.submit(db, a, "variable", "create", null, "{{admin_note}}",
+        Map<String, Object> applied = inTransaction(() -> {
+            User a = bean(UserRepository.class).findByUsername("other.admin").orElseThrow();
+            return bean(Approvals.class).submit(a, "variable", "create", null, "{{admin_note}}",
                     Map.of("name", "admin_note", "description", "By an admin", "source", "text", "value", "hi"));
-            assertEquals(Boolean.TRUE, applied.get("applied"));
-            ChangeRequest cr = db.get(ChangeRequest.class, applied.get("request_id"));
-            assertEquals("applied", cr.status);
-        }
+        });
+        assertEquals(Boolean.TRUE, applied.get("applied"));
+        ChangeRequest cr = bean(ChangeRequestRepository.class).findById(((Number) applied.get("request_id")).intValue()).orElseThrow();
+        assertEquals("applied", cr.getStatus());
     }
 
     @Test
     void anyAdminMayApproveEvenTheirOwnOlderRequest() throws Exception {
-        int id;
-        try (Db db = Db.open()) {  // an older request made by an admin, from before admins' changes applied at once
-            ChangeRequest cr = new ChangeRequest();
-            cr.entity = "variable";
-            cr.action = "create";
-            cr.summary = "{{old_admin_note}}";
-            cr.after = "{\"aggregate\": null, \"column\": null, \"description\": \"Old\", \"name\": \"old_admin_note\", "
-                    + "\"source\": \"text\", \"value\": \"x\"}";
-            cr.requestedBy = "other.admin";
-            db.add(cr);
-            db.commit();
-            id = cr.id;
-        }
+        // an older request made by an admin, from before admins' changes applied at once
+        ChangeRequest cr = new ChangeRequest();
+        cr.setEntity("variable");
+        cr.setAction("create");
+        cr.setSummary("{{old_admin_note}}");
+        cr.setAfter("{\"aggregate\": null, \"column\": null, \"description\": \"Old\", \"name\": \"old_admin_note\", "
+                + "\"source\": \"text\", \"value\": \"x\"}");
+        cr.setRequestedBy("other.admin");
+        int id = inTransaction(() -> bean(ChangeRequestRepository.class).save(cr)).getId();
         ApiTestServer.Response r = send("POST", "/api/change-requests/" + id + "/approve", other, null);
         assertEquals(200, r.status(), r.body());
     }

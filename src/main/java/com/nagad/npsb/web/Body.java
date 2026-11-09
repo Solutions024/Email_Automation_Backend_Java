@@ -1,5 +1,7 @@
 package com.nagad.npsb.web;
 
+import com.nagad.npsb.util.PyJson;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -13,7 +15,11 @@ import java.util.function.Function;
 /**
  * A JSON request body checked like a pydantic model: each field is read with its type and default, then
  * its validators run. All problems are collected and reported together (422) by done(), in pydantic's
- * format: [{"type", "loc", "msg", "input"}].
+ * format: [{"type", "loc", "msg", "input"}], which is what the frontend expects.
+ *
+ * Controllers take the body as raw text, {@code @RequestBody(required = false) String body}, and read it into a typed
+ * request record with this class after their sign-in checks (as the FastAPI backend did), e.g.
+ * {@code PartnerRequest.from(Body.parse(body))}.
  */
 public final class Body {
     private final Map<String, Object> data;
@@ -27,24 +33,42 @@ public final class Body {
         this.loc = loc;
     }
 
-    /** The request body, which must be a JSON object. */
-    public static Body of(Req req) {
-        Object parsed = req.json();
-        if (parsed == Req.NO_BODY) {
-            throw new ValidationError(List.of(error("missing", List.of("body"), "Field required", null)));
+    /** The request body as sent (JSON text; null or empty when there is none), which must be a JSON object. */
+    public static Body parse(String raw) {
+        return of(json(raw));
+    }
+
+    /** An optional body (Model | None = None): null when the request has none. */
+    public static Body parseOptional(String raw) {
+        return optional(json(raw));
+    }
+
+    /** The JSON value of a request body: null when there is none (or it is JSON null); 422 when it isn't valid JSON. */
+    public static Object json(String raw) {
+        if (raw == null || raw.isEmpty()) return null;
+        try {
+            return PyJson.MAPPER.readValue(raw, Object.class);
+        } catch (RuntimeException e) {
+            throw new RequestValidationException(List.of(error("json_invalid", List.of("body", 0), "JSON decode error", Map.of())));
+        }
+    }
+
+    /** The request body (as parsed from JSON; null when there is none), which must be a JSON object. */
+    public static Body of(Object parsed) {
+        if (parsed == null) {
+            throw new RequestValidationException(List.of(error("missing", List.of("body"), "Field required", null)));
         }
         return from(parsed, new ArrayList<>(), List.of("body"));
     }
 
     /** An optional body (Model | None = None): null when the request has none. */
-    public static Body optional(Req req) {
-        Object parsed = req.json();
-        if (parsed == Req.NO_BODY || parsed == null) return null;
+    public static Body optional(Object parsed) {
+        if (parsed == null) return null;
         return from(parsed, new ArrayList<>(), List.of("body"));
     }
 
     /** A stored dict checked again (Model(**after)): problems are reported with 400. */
-    public static Body of(Map<String, Object> data) {
+    public static Body ofStored(Map<String, Object> data) {
         return new Body(data == null ? new LinkedHashMap<>() : data, new ArrayList<>(), List.of());
     }
 
@@ -52,12 +76,12 @@ public final class Body {
     private static Body from(Object parsed, List<Map<String, Object>> errors, List<Object> loc) {
         if (!(parsed instanceof Map)) {
             errors.add(error("model_attributes_type", loc, "Input should be a valid dictionary or object to extract fields from", parsed));
-            throw new ValidationError(errors);
+            throw new RequestValidationException(errors);
         }
         return new Body((Map<String, Object>) parsed, errors, loc);
     }
 
-    static Map<String, Object> error(String type, List<Object> loc, String msg, Object input) {
+    public static Map<String, Object> error(String type, List<Object> loc, String msg, Object input) {
         Map<String, Object> e = new LinkedHashMap<>();
         e.put("type", type);
         e.put("loc", loc);
@@ -226,7 +250,7 @@ public final class Body {
         return literal(field, allowed[0], allowed);
     }
 
-    static String expected(String... allowed) {
+    public static String expected(String... allowed) {
         StringBuilder b = new StringBuilder();
         for (int i = 0; i < allowed.length; i++) {
             if (i > 0) b.append(i == allowed.length - 1 ? " or " : ", ");
@@ -333,7 +357,7 @@ public final class Body {
 
     /** Raise the collected problems (422). */
     public void done() {
-        if (!errors.isEmpty()) throw new ValidationError(errors);
+        if (!errors.isEmpty()) throw new RequestValidationException(errors);
     }
 
     /** Re-validation of stored data: problems become a 400 with a readable message. */
@@ -341,6 +365,6 @@ public final class Body {
         if (errors.isEmpty()) return;
         List<String> messages = new ArrayList<>();
         for (Map<String, Object> e : errors) messages.add(String.valueOf(e.get("msg")).replaceFirst("^Value error, ", ""));
-        throw new ApiError(400, String.join(", ", messages));
+        throw new ApiException(400, String.join(", ", messages));
     }
 }

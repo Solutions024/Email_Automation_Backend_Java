@@ -1,0 +1,130 @@
+# NPSB Dispute Email Automation - backend.
+# Values come from the environment or the .env file (see .env.example); the environment wins over .env.
+# The names in ${...} are the .env names; the value after ":" is the default.
+
+spring:
+  application:
+    name: npsb-dispute-backend
+  main:
+    banner-mode: "off"
+  autoconfigure:
+    # users sign in with their own accounts (JwtAuthenticationFilter), not with a generated in-memory user
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+  jpa:
+    # One persistence context per request, opened before Spring Security (see WebConfig), like the session per
+    # request of the Python backend.
+    open-in-view: false
+    hibernate:
+      # The tables are created and brought up to date by SchemaInitializer, exactly as the Python backend did,
+      # so both can use the same database.
+      ddl-auto: none
+    properties:
+      hibernate:
+        connection.provider_disables_autocommit: true
+      # Changes are written on commit or an explicit flush, never before a query (SQLAlchemy autoflush=False)
+      org.hibernate.flushMode: COMMIT
+  jackson:
+    # JSON field names in snake_case, as the frontend expects
+    property-naming-strategy: SNAKE_CASE
+    mapper:
+      sort-properties-alphabetically: false
+    deserialization:
+      fail-on-unknown-properties: false
+  task:
+    scheduling:
+      pool:
+        # the background jobs (mailbox check, automatic follow-ups) must not wait for each other
+        size: 4
+  servlet:
+    multipart:
+      # uploads are read into memory: at most 25 MB per file and 30 MB per request
+      max-file-size: 25MB
+      max-request-size: 30MB
+      file-size-threshold: 1MB
+
+server:
+  # where the API listens (also: java -jar npsb-backend.jar --host 0.0.0.0 --port 8000)
+  address: ${HOST:127.0.0.1}
+  port: ${PORT:8000}
+  shutdown: graceful
+  tomcat:
+    max-http-form-post-size: 30MB
+  error:
+    whitelabel:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+# Swagger UI at /docs, the OpenAPI document at /openapi.json (same addresses as before)
+springdoc:
+  api-docs:
+    path: /openapi.json
+  swagger-ui:
+    path: /docs
+  default-produces-media-type: application/json
+
+npsb:
+  db:
+    # MySQL (the same details you use to connect in MySQL Workbench). The database and tables are created on first start.
+    host: ${DB_HOST:localhost}
+    port: ${DB_PORT:3306}
+    user: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+    name: ${DB_NAME:npsb_dispute}
+    # Optional: a full JDBC URL instead (e.g. jdbc:h2:./test-db;MODE=MySQL;DATABASE_TO_LOWER=TRUE)
+    url: ${DATABASE_URL:}
+  # Long random string. Empty: everyone is signed out when the server restarts.
+  jwt-secret: ${JWT_SECRET:}
+  cookie-secure: ${COOKIE_SECURE:false}
+  app-base-url: ${APP_BASE_URL:http://localhost:5173}
+  cc-emails: ${CC_EMAILS:}
+  followup-due-days: ${FOLLOWUP_DUE_DAYS:3}
+  auto-followup-enabled: ${AUTO_FOLLOWUP_ENABLED:false}
+  auto-followup-max: ${AUTO_FOLLOWUP_MAX:3}
+  admin-email: ${ADMIN_EMAIL:}
+  # (npsb.backend-dir and npsb.app-log-dir are worked out at startup from APP_LOG_DIR)
+
+  # Startup values of the settings that can be changed on the System Settings page (LiveSettings)
+  live:
+    mail-provider: ${MAIL_PROVIDER:gmail}
+    gmail-address: ${GMAIL_ADDRESS:}
+    gmail-app-password: ${GMAIL_APP_PASSWORD:}
+    gmail-folder: ${GMAIL_FOLDER:INBOX}
+    gmail-from: ${GMAIL_FROM:}
+    smtp-host: ${SMTP_HOST:localhost}
+    smtp-port: ${SMTP_PORT:1025}
+    smtp-user: ${SMTP_USER:}
+    smtp-password: ${SMTP_PASSWORD:}
+    smtp-use-tls: ${SMTP_USE_TLS:false}
+    smtp-max-attempts: ${SMTP_MAX_ATTEMPTS:3}
+    smtp-retry-seconds: ${SMTP_RETRY_SECONDS:2}
+    mail-from: ${MAIL_FROM:npsb-dispute@nagad.test}
+    inbox-enabled: ${INBOX_ENABLED:true}
+    imap-host: ${IMAP_HOST:}
+    imap-port: ${IMAP_PORT:993}
+    imap-user: ${IMAP_USER:}
+    imap-password: ${IMAP_PASSWORD:}
+    imap-folder: ${IMAP_FOLDER:INBOX}
+    inbox-check-seconds: ${INBOX_CHECK_SECONDS:120}
+    inbox-first-scan-days: ${INBOX_FIRST_SCAN_DAYS:60}
+    auto-followup-check-seconds: ${AUTO_FOLLOWUP_CHECK_SECONDS:300}
+    maker-checker: ${MAKER_CHECKER:true}
+    allow-registration: ${ALLOW_REGISTRATION:true}
+    admin-signup-code: ${ADMIN_SIGNUP_CODE:1234}
+    email-dns-check: ${EMAIL_DNS_CHECK:true}
+    max-failed-logins: ${MAX_FAILED_LOGINS:5}
+    lockout-minutes: ${LOCKOUT_MINUTES:15}
+    login-rate-limit-per-minute: ${LOGIN_RATE_LIMIT_PER_MINUTE:10}
+    verification-code-minutes: ${VERIFICATION_CODE_MINUTES:15}
+    password-reset-minutes: ${PASSWORD_RESET_MINUTES:30}
+    access-token-minutes: ${ACCESS_TOKEN_MINUTES:15}
+    refresh-token-days: ${REFRESH_TOKEN_DAYS:1}
+    refresh-token-remember-days: ${REFRESH_TOKEN_REMEMBER_DAYS:30}
