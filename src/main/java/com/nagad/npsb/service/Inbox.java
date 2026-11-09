@@ -1110,6 +1110,18 @@ public final class Inbox {
 
         String[] from = firstAddress(msg.raw("From"));
         String name = from[0], sender = from[1];
+        // not linked by its headers: a reply that quotes our email carries its invisible case ID (CaseIds)
+        if (d == null && !kind.equals(BOUNCE)) {
+            String caseId = CaseIds.find(content.bodyHtml());
+            EmailDispatch byCase = caseId == null ? null : db.first(EmailDispatch.class, "WHERE t.case_id = ? AND t.status = 'SENT'", caseId);
+            if (byCase != null && (partnerId == null || partnerId.equals(byCase.partnerId))) {
+                d = byCase;
+                partnerId = byCase.partnerId;
+                matchedBy = "case_id";
+                review = null;
+                if (kind.equals(PARTNER_MAIL) || kind.equals(REVIEW)) kind = REPLY;
+            }
+        }
         EmailReply reply = new EmailReply();
         reply.dispatchId = d != null ? d.id : null;
         reply.partnerId = partnerId;

@@ -42,6 +42,7 @@ public class EmailDispatch extends Entity {
     public LocalDateTime replyStatusAt;
     public Integer followupCount = 0;
     public LocalDateTime lastFollowupAt;
+    public String caseId;  // CaseIds: year, month, 00, partner, 1 inward / 2 outward, 000, index
     public String remarks;
     public String remarksBy;
     public LocalDateTime remarksAt;

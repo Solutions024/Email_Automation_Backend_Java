@@ -46,14 +46,6 @@ public final class Application {
             if (args[i].equals("--port")) port = Integer.parseInt(args[i + 1]);
             if (args[i].equals("--host")) host = args[i + 1];
         }
-        // In a container a loopback address is only reachable from inside it, so `docker run -p` never gets through.
-        // That happens when --env-file passes HOST=127.0.0.1 from a .env made for running on the computer itself.
-        if (java.nio.file.Files.exists(java.nio.file.Path.of("/.dockerenv"))
-                && (host.equals("localhost") || host.startsWith("127."))) {
-            Logger.getLogger("npsb").warning("HOST=" + host + " inside a container would not be reachable through the "
-                    + "published port; listening on 0.0.0.0 instead");
-            host = "0.0.0.0";
-        }
         // Another backend already on this port: stop now, before the mailbox check and follow-up jobs start twice
         try (java.net.ServerSocket probe = new java.net.ServerSocket()) {
             probe.bind(new java.net.InetSocketAddress(host, port));
@@ -64,14 +56,7 @@ public final class Application {
             System.err.println("ERROR: " + text);
             System.exit(1);
         }
-        try {
-            startup();
-        } catch (java.sql.SQLException e) {
-            // A clear one-line reason (and the fix) instead of a JDBC stack trace
-            Logger.getLogger("npsb").severe(e.getMessage());
-            System.err.println("ERROR: " + e.getMessage());
-            System.exit(1);
-        }
+        startup();
         Server server = new Server();
         com.nagad.npsb.api.Health.routes(server);  // /startupz, /livez, /readyz for Kubernetes
         Auth.routes(server);
@@ -102,6 +87,7 @@ public final class Application {
             Seed.seedTemplates(db);          // the standard email templates
             ServerSettings.load(db);         // settings changed on the System Settings page
             com.nagad.npsb.api.Auth.ensureBuiltInAdmin(db);  // the one admin that creates every account
+            com.nagad.npsb.service.CaseIds.backfill(db);      // case IDs for emails made before they existed
         }
         Thread followups = new Thread(MainApi::autoFollowupLoop, "auto-followups");
         followups.setDaemon(true);

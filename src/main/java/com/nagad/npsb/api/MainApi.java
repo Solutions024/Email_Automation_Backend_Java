@@ -14,6 +14,7 @@ import com.nagad.npsb.models.Transaction;
 import com.nagad.npsb.models.Upload;
 import com.nagad.npsb.models.User;
 import com.nagad.npsb.service.Approvals;
+import com.nagad.npsb.service.CaseIds;
 import com.nagad.npsb.service.Delivery;
 import com.nagad.npsb.service.EmailCheck;
 import com.nagad.npsb.service.EmailService;
@@ -124,6 +125,7 @@ public final class MainApi {
         }
         return Py.map(
                 "id", d.id,
+                "case_id", d.caseId,
                 "partner_name", d.partner().name,
                 "to", Py.splitOn(d.toEmails, ","),
                 "cc", Py.csv(d.ccEmails),
@@ -1251,6 +1253,8 @@ public final class MainApi {
                 dispatch.uploadId = upload.id;
                 dispatch.partnerId = partner.id;
                 dispatch.mailType = mailType;
+                // shown while composing; one prepare makes at most one email per partner and mail type
+                dispatch.caseId = CaseIds.next(db, Py.now().toLocalDate(), partner.id, mailType);
                 db.add(dispatch);
             }
             if (chosen.containsKey(mailType)) {
@@ -1277,7 +1281,13 @@ public final class MainApi {
             dispatch.deliveryIssues = null;
             if (!problems.isEmpty()) notices.add(label + ": left out " + String.join("; ", problems) + ".");
         }
-        db.commit();
+        try {
+            db.commit();
+        } catch (Db.DbException e) {
+            if (!e.integrity()) throw e;
+            db.rollback();  // two people prepared emails for the same partner at the very same moment: one case ID clashed
+            throw new ApiError(409, "Someone else prepared emails for the same partner at the same moment. Prepare them again.");
+        }
         return Py.map("errors", errors, "notices", notices, "emails", listEmails(db, uploadId));
     }
 
@@ -1358,7 +1368,7 @@ public final class MainApi {
             List<Transaction> txns = dispatchTransactions(dispatch);
             if (!txns.isEmpty()) {
                 EmailTemplate template = templateFor(db, dispatch.mailType, dispatch.templateId);
-                String[] built = EmailService.buildEmail(dispatch.partner().name, dispatch.mailType, txns, template, List.of());
+                String[] built = EmailService.buildEmail(dispatch.partner().name, dispatch.mailType, txns, template, templateVariables(db));  // with the variables, as when prepared
                 dispatch.subject = built[0];
                 dispatch.bodyHtml = built[1];
             }
@@ -1384,7 +1394,7 @@ public final class MainApi {
         List<Transaction> txns = dispatchTransactions(dispatch);
         if (txns.isEmpty()) throw new ApiError(400, "This email has no transactions to build it from.");
         dispatch.templateId = template.id;
-        String[] built = EmailService.buildEmail(dispatch.partner().name, dispatch.mailType, txns, template, List.of());
+        String[] built = EmailService.buildEmail(dispatch.partner().name, dispatch.mailType, txns, template, templateVariables(db));  // with the variables, as when prepared
         dispatch.subject = built[0];
         dispatch.bodyHtml = built[1];
         dispatch.isEdited = false;
@@ -1445,7 +1455,7 @@ public final class MainApi {
     static void deliver(Db db, EmailDispatch d, User admin) {
         try {
             EmailService.SendResult result = EmailService.sendEmail(Py.splitOn(d.toEmails, ","), Py.csv(d.ccEmails), d.subject,
-                    d.bodyHtml, null, attachmentFor(d), null);
+                    CaseIds.withHidden(d.bodyHtml, d.caseId), null, attachmentFor(d), null);  // + the invisible case ID
             d.status = "SENT";
             d.sentAt = Py.now();
             d.sentBy = admin.username;
@@ -1546,11 +1556,11 @@ public final class MainApi {
         for (String word : words.subList(0, Math.min(words.size(), 10))) {
             String like = "%" + word.replace("%", "").replace("_", "") + "%";
             String names = "(SELECT username FROM users WHERE LOWER(full_name) LIKE LOWER(?))";
-            query = query.and("(LOWER(p.name) LIKE LOWER(?) OR LOWER(t.subject) LIKE LOWER(?) OR LOWER(t.to_emails) LIKE LOWER(?) "
+            query = query.and("(t.case_id LIKE ? OR LOWER(p.name) LIKE LOWER(?) OR LOWER(t.subject) LIKE LOWER(?) OR LOWER(t.to_emails) LIKE LOWER(?) "
                             + "OR LOWER(t.cc_emails) LIKE LOWER(?) OR LOWER(u.filename) LIKE LOWER(?) OR LOWER(t.submitted_by) LIKE LOWER(?) "
                             + "OR LOWER(t.sent_by) LIKE LOWER(?) OR LOWER(t.remarks) LIKE LOWER(?) OR t.submitted_by IN " + names
                             + " OR t.sent_by IN " + names + ")",
-                    like, like, like, like, like, like, like, like, like, like);
+                    like, like, like, like, like, like, like, like, like, like, like);
         }
         return query;
     }
@@ -1878,7 +1888,7 @@ public final class MainApi {
         event.createdBy = by;
         EmailService.SendResult result;
         try {
-            result = EmailService.sendEmail(to, cc, subject, bodyHtml, d.messageId, attachmentFor(d), null);
+            result = EmailService.sendEmail(to, cc, subject, CaseIds.withHidden(bodyHtml, d.caseId), d.messageId, attachmentFor(d), null);
         } catch (RuntimeException exc) {
             d.lastFollowupAt = previous;  // nothing went out
             event.ok = false;

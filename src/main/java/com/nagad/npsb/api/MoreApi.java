@@ -103,7 +103,7 @@ public final class MoreApi {
                 "id", r.id, "category", Inbox.REVIEW.equals(r.kind) ? "review" : d != null ? "reply" : "partner_mail", "kind", r.kind,
                 "review_reason", r.reviewReason, "suggested_email_id", r.suggestedDispatchId,
                 "handled_by", r.handledBy, "handled_at", Py.iso(r.handledAt),
-                "email_id", d != null ? d.id : null, "partner_id", partnerId,
+                "email_id", d != null ? d.id : null, "case_id", d != null ? d.caseId : null, "partner_id", partnerId,
                 "partner_name", partners.containsKey(partnerId) ? partners.get(partnerId) : "Unknown partner",
                 "mail_type", d != null ? d.mailType : null, "from_email", r.fromEmail, "from_name", r.fromName,
                 "subject", r.subject, "snippet", r.snippet, "matched_by", r.matchedBy,
@@ -494,7 +494,7 @@ public final class MoreApi {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map<String, Object> e : MainApi.dispatchesToDicts(db, MainApi.pendingQuery(db))) {
             rows.add(Py.map(
-                    "Email #", e.get("id"), "Partner", e.get("partner_name"), "Mail type", e.get("mail_type_label"),
+                    "Email #", e.get("id"), "Case ID", or(e.get("case_id")), "Partner", e.get("partner_name"), "Mail type", e.get("mail_type_label"),
                     "To", String.join(", ", strings(e.get("to"))), "CC", String.join(", ", strings(e.get("cc"))),
                     "Subject", e.get("subject"), "File", e.get("upload_filename"), "Transactions", e.get("txn_count"),
                     "Amount (BDT)", e.get("total_amount"), "Status", e.get("status"), "Error", or(e.get("error")),
@@ -533,7 +533,7 @@ public final class MoreApi {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map<String, Object> e : MainApi.dispatchesToDicts(db, emails)) {
             rows.add(Py.map(
-                    "Email #", e.get("id"), "Partner", e.get("partner_name"), "Mail type", e.get("mail_type_label"),
+                    "Email #", e.get("id"), "Case ID", or(e.get("case_id")), "Partner", e.get("partner_name"), "Mail type", e.get("mail_type_label"),
                     "To", String.join(", ", strings(e.get("to"))),
                     "Subject", e.get("subject"), "File", e.get("upload_filename"), "Transactions", e.get("txn_count"),
                     "Amount (BDT)", e.get("total_amount"), "Sent at", or(e.get("sent_at")), "Sent by", or(e.get("sent_by_name")),

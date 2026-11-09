@@ -337,7 +337,7 @@ public final class Answers {
         String references = refs.isEmpty() ? null : String.join(" ", refs);
         EmailService.SendResult result;
         try {
-            result = EmailService.sendEmail(to, cc, a.subject, html, parent, null, references);
+            result = EmailService.sendEmail(to, cc, a.subject, com.nagad.npsb.service.CaseIds.withHidden(html, d.caseId), parent, null, references);
         } catch (Exception exc) {
             String message = exc.getMessage() == null ? exc.toString() : exc.getMessage();
             a.status = FAILED;
