@@ -45,6 +45,20 @@ They never touch MySQL or send mail: the `test` task in `build.gradle.kts` gives
 built-in admin only managing accounts, setting a password, forgot-password code, the RRN check
 across uploads, upload type and size limits, approvals and partner changes.
 
+### HTTP contract test
+
+    ./gradlew contractTest                          # compare with the recorded contract (also part of ./gradlew check)
+    ./gradlew contractTest -PcontractRecord=true    # record it again after an intended API change
+
+`src/test/java/com/nagad/npsb/contract` drives a fresh backend (its own in-memory database) only over HTTP
+through a long scenario: sign-in with emailed codes, users, partners, templates and approvals, uploads,
+preparing, sending and following up emails, settings, and the error answers (401/403/404/405/307/413/422, CORS).
+Every answer (status, contract headers, JSON body with clock values, tokens and ports normalized) is kept in
+`src/test/resources/contract/api-snapshot.json`; a difference fails the test with every differing step listed
+(also in `build/contract/contract-report.txt`, the new run in `build/contract/api-snapshot.actual.json`).
+Mail goes to a small SMTP server inside the test. The same test can be replayed against a reimplementation
+of the backend: it only needs `ApiTestServer.url()` and `ApiTestServer.tokenFor(username)`.
+
 ## Tools (same as the Python scripts)
 
     # local test mail server on localhost:1025, saves every email to sent_emails/*.html

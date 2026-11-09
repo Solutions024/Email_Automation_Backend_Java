@@ -2,3 +2,5 @@
 /gradlew        text eol=lf
 *.bat           text eol=crlf
 *.jar           binary
+# the recorded HTTP contract is compared and re-recorded byte for byte
+/src/test/resources/contract/*.json  text eol=lf
