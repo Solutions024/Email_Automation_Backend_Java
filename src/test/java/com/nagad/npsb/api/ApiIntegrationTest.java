@@ -13,8 +13,16 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static com.nagad.npsb.api.ApiTestServer.bean;
 import static com.nagad.npsb.api.ApiTestServer.inTransaction;
@@ -181,6 +189,64 @@ class ApiIntegrationTest {
         byte[] big = new byte[26 * 1024 * 1024];
         ApiTestServer.Response r = upload("/api/uploads", user, "big.csv", big);
         assertEquals(413, r.status(), r.body());
+    }
+
+    // ---------------------------------------------------------------- request body size (JSON)
+
+    /** A body sent in chunks has no Content-Length: the 30 MB limit must still hold while it is read. */
+    @Test
+    void chunkedBodyOverTheLimitIsRefusedWith413() throws Exception {
+        long size = 30L * 1024 * 1024 + 64 * 1024;  // a little over the limit
+        HttpResponse<String> r = sendChunked("/api/auth/login", null, () -> new FilledStream(size, (byte) ' '));
+        assertEquals(413, r.statusCode(), r.body());
+        assertEquals("The request is too large. The limit is 30 MB.",
+                new ApiTestServer.Response(r.statusCode(), r.body()).json().get("detail"));
+    }
+
+    @Test
+    void chunkedBodyUnderTheLimitIsReadNormally() throws Exception {
+        byte[] json = ("{\"name\": \"Chunked Bank " + System.nanoTime() + "\", \"is_active\": true, \"emails\": []}")
+                .getBytes(StandardCharsets.UTF_8);
+        HttpResponse<String> r = sendChunked("/api/partners", user, () -> new ByteArrayInputStream(json));
+        assertEquals(200, r.statusCode(), r.body());
+        assertNotNull(new ApiTestServer.Response(r.statusCode(), r.body()).json().get("partner"));
+    }
+
+    /** POST a body without a Content-Length (Transfer-Encoding: chunked). */
+    static HttpResponse<String> sendChunked(String path, String token, Supplier<InputStream> body) throws Exception {
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(ApiTestServer.url() + path))
+                .version(HttpClient.Version.HTTP_1_1)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofInputStream(body));
+        if (token != null) b.header("Authorization", "Bearer " + token);
+        return HttpClient.newHttpClient().send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    /** size bytes of the same value, without holding them in memory. */
+    static final class FilledStream extends InputStream {
+        private long left;
+        private final byte value;
+
+        FilledStream(long size, byte value) {
+            this.left = size;
+            this.value = value;
+        }
+
+        @Override
+        public int read() {
+            if (left <= 0) return -1;
+            left--;
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) {
+            if (left <= 0) return -1;
+            int n = (int) Math.min(length, left);
+            java.util.Arrays.fill(buffer, offset, offset + n, value);
+            left -= n;
+            return n;
+        }
     }
 
     // ---------------------------------------------------------------- approvals
