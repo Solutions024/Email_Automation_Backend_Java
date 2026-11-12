@@ -50,8 +50,8 @@ final class Normalizer {
     private static final Pattern SIX_DIGITS = Pattern.compile("\\d{6}");
     // "Connection refused: connect", "...: getsockopt", Windows: "...: no further information"
     private static final Pattern CONNECTION_REFUSED = Pattern.compile("Connection refused(?:: [A-Za-z]+(?: [A-Za-z]+)*)?");
-    /** A case ID (CaseIds): yyyyMM + 00 + partner (3) + direction (1 / 2) + 000 + index (3). */
-    private static final Pattern CASE_ID = Pattern.compile("(?<![0-9])([0-9]{6})(00[0-9]{3}[12]000[0-9]{3})(?![0-9])");
+    /** A case ID (CaseIds): yyyyMM + 00 + partner code (3 or more digits) + direction (1 / 2) + 000 + index (3). */
+    private static final Pattern CASE_ID = Pattern.compile("(?<![0-9])([0-9]{6})(00[0-9]{3,12}[12]000[0-9]{3})(?![0-9])");
 
     /** Formatted clock dates (longest first, so "09 Nov 2026" is replaced before a shorter format could match). */
     private final List<String> clockDates;

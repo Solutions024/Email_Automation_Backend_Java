@@ -109,7 +109,7 @@ public class EmailService {
     /** Only in reminder (follow-up) templates */
     public static final Map<String, String> REMINDER_PLACEHOLDERS = new LinkedHashMap<>();
     static {
-        PLACEHOLDERS.put("partner_name", "Partner name (KEY_ORG_NM)");
+        PLACEHOLDERS.put("partner_name", "Partner name (as in Partner Configuration)");
         PLACEHOLDERS.put("date", "Transaction date, or date range");
         PLACEHOLDERS.put("txn_count", "Number of transactions");
         PLACEHOLDERS.put("total_amount", "Total amount (BDT)");

@@ -12,8 +12,10 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /** A partner and its recipient addresses (Partner Configuration page). */
-@Schema(description = "A partner (name exactly as in the KEY_ORG_NM column) and its email addresses.")
+@Schema(description = "A partner: its NPSB_ORG_CODE (the key: 103 and 0103 are the same code), its name and its email addresses.")
 public record PartnerRequest(
+        @Schema(example = "103", description = "NPSB_ORG_CODE: digits; leading zeros don't matter. Required for a new partner; "
+                + "left out on an update: the partner keeps its code.") String orgCode,
         @Schema(example = "bKash") String name,
         @Schema(defaultValue = "true") boolean isActive,
         List<PartnerEmailRequest> emails) {
@@ -29,6 +31,9 @@ public record PartnerRequest(
 
     /** The fields as read from a body (problems are collected in b). */
     public static PartnerRequest read(Body b) {
+        // a number (103) or text ("0103"); checked by PartnerService (400 with a clear message)
+        Object rawCode = b.data().get("org_code");
+        String orgCode = rawCode instanceof Number n ? String.valueOf(n.longValue()) : b.optStr("org_code");
         String name = b.str("name");
         boolean isActive = b.bool("is_active", true);
         List<PartnerEmailRequest> emails = new ArrayList<>();
@@ -42,7 +47,7 @@ public record PartnerRequest(
             boolean clear = e.bool("clear_problem", false);
             emails.add(new PartnerEmailRequest(email, active, clear));
         }
-        return new PartnerRequest(name, isActive, emails);
+        return new PartnerRequest(orgCode, name, isActive, emails);
     }
 
     /** The request body (422 with every problem). */
@@ -66,6 +71,6 @@ public record PartnerRequest(
         for (PartnerEmailRequest e : emails) {
             list.add(Py.map("email", e.email(), "is_active", e.isActive(), "clear_problem", e.clearProblem()));
         }
-        return Py.map("name", name, "is_active", isActive, "emails", list);
+        return Py.map("org_code", orgCode, "name", name, "is_active", isActive, "emails", list);
     }
 }

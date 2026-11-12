@@ -20,7 +20,7 @@ public class WebConfig {
 
     @Bean
     public FilterRegistrationBean<CorsFilter> corsFilter(NpsbProperties properties) {
-        FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(new CorsFilter(properties.baseUrl()));
+        FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(new CorsFilter(properties.frontendOrigin()));
         bean.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
         return bean;
     }

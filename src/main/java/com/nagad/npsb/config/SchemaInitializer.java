@@ -138,6 +138,7 @@ public final class SchemaInitializer {
             FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL""", "user_id,created_at"},
         {"partners", """
             id INTEGER NOT NULL AUTO_INCREMENT,
+            org_code VARCHAR(20) NULL,
             name VARCHAR(150) NOT NULL,
             is_active BOOL NOT NULL,
             PRIMARY KEY (id)""", ""},
@@ -412,6 +413,7 @@ public final class SchemaInitializer {
         {"users", "role", "VARCHAR(10) NOT NULL DEFAULT 'user'"},  // existing accounts become "user"
         {"email_dispatches", "template_id", "INT NULL"},
         {"email_dispatches", "case_id", "VARCHAR(40) NULL"},
+        {"partners", "org_code", "VARCHAR(20) NULL"},  // NPSB_ORG_CODE; older partners get it at startup (PartnerService.fillOrgCodes)
         {"email_events", "message_id", "VARCHAR(255) NULL"},
         {"email_events", "reply_id", "INT NULL"},
         {"email_replies", "partner_id", "INT NULL"},
@@ -534,6 +536,13 @@ public final class SchemaInitializer {
         if (!uniqueEmail) {
             try (Statement st = c.createStatement()) {
                 st.execute("CREATE UNIQUE INDEX ux_users_email ON users (email)");
+            }
+        }
+        // a partner's NPSB_ORG_CODE is unique (partners without one yet: NULL, allowed more than once)
+        boolean uniqueCode = indexes(c, "partners", true).values().stream().anyMatch(cols -> cols.equals(List.of("org_code")));
+        if (!uniqueCode) {
+            try (Statement st = c.createStatement()) {
+                st.execute("CREATE UNIQUE INDEX ux_partners_org_code ON partners (org_code)");
             }
         }
         // every email's case ID is unique (CaseIds)

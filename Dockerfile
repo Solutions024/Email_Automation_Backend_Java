@@ -49,6 +49,7 @@ ENV HOME=/home/appuser \
     HOST=0.0.0.0 \
     PORT=8000 \
     APP_LOG_DIR=/app/logs \
+    SERVER_CONTEXT_PATH= \
     NPSB_ENV_FILE=none
 
 # CIB-05: dedicated non-root user and group (fixed IDs for runAsUser / volume permissions)
@@ -75,7 +76,7 @@ EXPOSE 8000
 
 # CIB-18: liveness probe built into the backend (/startupz, /readyz and /actuator/health/* also exist for Kubernetes)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -fsS --max-time 8 "http://127.0.0.1:${PORT}/livez" || exit 1
+    CMD curl -fsS --max-time 8 "http://127.0.0.1:${PORT}${SERVER_CONTEXT_PATH}/livez" || exit 1
 
 # CIB-17: exec form, so the JVM is PID 1 and receives SIGTERM directly
 # JVM flags go here, not in JAVA_TOOL_OPTIONS (that makes the JVM print "Picked up JAVA_TOOL_OPTIONS" at start)

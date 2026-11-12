@@ -94,7 +94,7 @@ public class UploadService {
                 id -> sql.all(EmailDispatch.class, "WHERE t.upload_id = ? ORDER BY t.id", id));
         for (EmailDispatch d : emails) {
             if (t.getMailType() != null && t.getMailType().equals(d.getMailType())
-                    && nameKey(t.getPartnerName()).equals(nameKey(groups.partnerOf(d).getName()))) {
+                    && TransactionGroups.belongsTo(t, groups.partnerOf(d))) {  // the same code (older data: name)
                 return d;
             }
         }
@@ -251,10 +251,10 @@ public class UploadService {
         return new FileDownload(ExcelParser.toXlsx(table, "Transactions"), FileDownload.XLSX_TYPE, "attachment; filename=\"" + filename + "\"");
     }
 
-    /** Transactions grouped by partner (KEY_ORG_NM) and mail type (TXN_DIRECTION). */
+    /** Transactions grouped by partner (NPSB_ORG_CODE) and mail type (TXN_DIRECTION). */
     public Map<String, Object> getUploadGroups(int uploadId) {
         Upload upload = getUploadOr404(uploadId);
-        Map<String, Partner> partners = groups.partnersByName();
+        Map<String, Partner> partners = groups.partnersByKey();
         List<Object> out = new ArrayList<>();
         for (Map.Entry<List<String>, List<Transaction>> e : groups.groupByPartner(upload).entrySet()) {
             String key = e.getKey().get(0), mailType = e.getKey().get(1);
@@ -281,6 +281,7 @@ public class UploadService {
                     "key", key + "|" + mailType,
                     "mail_type", mailType,
                     "mail_type_label", EmailService.MAIL_TYPES.get(mailType),
+                    "partner_code", partner != null && partner.getOrgCode() != null ? partner.getOrgCode() : TransactionGroups.codeOfKey(key),
                     "partner_name", partner != null ? partner.getName() : txns.get(0).getPartnerName(),
                     "partner_configured", partner != null,
                     "txn_count", txns.size(),

@@ -76,7 +76,7 @@ public class UploadController {
     }
 
     @GetMapping("/api/uploads/{upload_id}")
-    @Operation(summary = "Transactions grouped by partner (KEY_ORG_NM) and mail type (TXN_DIRECTION).")
+    @Operation(summary = "Transactions grouped by partner (NPSB_ORG_CODE) and mail type (TXN_DIRECTION).")
     public Map<String, Object> getUploadGroups(@PathVariable("upload_id") int uploadId) {
         currentUser.require();
         return uploads.getUploadGroups(uploadId);

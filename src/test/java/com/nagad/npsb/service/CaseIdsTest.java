@@ -12,8 +12,8 @@ class CaseIdsTest {
 
     @Test
     void prefixIsYearMonthPartnerAndDirection() {
-        assertEquals("202611000031000", CaseIds.prefix(LocalDate.of(2026, 11, 9), 3, "inward"));
-        assertEquals("202601001252000", CaseIds.prefix(LocalDate.of(2026, 1, 31), 125, "outward"));
+        assertEquals("202611000031000", CaseIds.prefix(LocalDate.of(2026, 11, 9), "003", "inward"));
+        assertEquals("202601001252000", CaseIds.prefix(LocalDate.of(2026, 1, 31), "125", "outward"));
         assertEquals("2", CaseIds.direction("outward_reminder"));  // old reminder emails count as outward
     }
 

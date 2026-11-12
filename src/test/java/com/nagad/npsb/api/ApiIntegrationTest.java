@@ -172,6 +172,40 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void olderPartnersGetTheirCodeFromEarlierUploads() throws Exception {
+        String header = "NPSB_TXN_RRN,APPROVAL_DATE,APPROVAL_DATETIME,TXN_TYPE,TXN_ID,FIRST_TXN_STATUS_NAME,TXN_AMOUNT,"
+                + "FROMAC_NAME,TOAC_TYPE,ORG_TXN_STAN,KEY_ORG_NM,NPSB_ORG_CODE,TXN_DIRECTION\n";
+        String rows = header
+                + "810000000001,2026-09-03,,NPSB,L1,APPROVED,100,A,CUSTOMER,1,Legacy Bank,0451,Inward\n"
+                + "810000000002,2026-09-03,,NPSB,L2,APPROVED,100,A,CUSTOMER,2, LEGACY BANK ,451,Outward\n"   // same code
+                + "810000000003,2026-09-03,,NPSB,T1,APPROVED,100,A,CUSTOMER,3,Twin Bank,0601,Inward\n"
+                + "810000000004,2026-09-03,,NPSB,T2,APPROVED,100,A,CUSTOMER,4,Twin Bank,0602,Inward\n"       // two codes
+                + "810000000005,2026-09-03,,NPSB,D1,APPROVED,100,A,CUSTOMER,5,Dup One,0701,Inward\n"
+                + "810000000006,2026-09-03,,NPSB,D2,APPROVED,100,A,CUSTOMER,6,Dup Two,701,Inward\n"          // one code, two partners
+                + "810000000007,2026-09-03,,NPSB,K1,APPROVED,100,A,CUSTOMER,7,Late Bank,0801,Inward\n";      // code already taken
+        ApiTestServer.Response up = upload("/api/uploads", user, "legacy.csv", rows.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals(200, up.status(), up.body());
+
+        JdbcClient jdbc = bean(JdbcClient.class);
+        inTransaction(() -> {  // partners made before codes existed
+            for (String name : List.of("Legacy Bank", "twin bank", "Dup One", "Dup Two", "Late Bank")) {
+                jdbc.sql("INSERT INTO partners (name, is_active) VALUES (?, TRUE)").params(name).update();
+            }
+            jdbc.sql("INSERT INTO partners (org_code, name, is_active) VALUES ('801', 'Has 801', TRUE)").update();
+            return null;
+        });
+        bean(com.nagad.npsb.service.PartnerService.class).fillOrgCodes();
+
+        java.util.function.Function<String, Object> codeOf = name ->
+                jdbc.sql("SELECT org_code FROM partners WHERE name = ?").params(name).query().optionalValue().orElse(null);
+        assertEquals("451", codeOf.apply("Legacy Bank"));   // 0451 and 451: one code, leading zeros dropped
+        assertNull(codeOf.apply("twin bank"));              // two codes in its rows: an admin decides
+        assertNull(codeOf.apply("Dup One"));                // the same code for two partners: neither gets it
+        assertNull(codeOf.apply("Dup Two"));
+        assertNull(codeOf.apply("Late Bank"));              // another partner already has 801
+    }
+
+    @Test
     void onlyXlsxAndCsvAreAccepted() throws Exception {
         assertEquals(400, upload("/api/uploads", user, "evil.html", "<script>alert(1)</script>".getBytes()).status());
     }
@@ -225,7 +259,8 @@ class ApiIntegrationTest {
     @Test
     void usersEditPartnersDirectly() throws Exception {
         ApiTestServer.Response r = send("POST", "/api/partners", user,
-                Map.of("name", "Test Bank " + System.nanoTime(), "is_active", true, "emails", List.of()));
+                Map.of("org_code", String.valueOf(System.nanoTime() % 1_000_000_000L), "name", "Test Bank " + System.nanoTime(),
+                        "is_active", true, "emails", List.of()));
         assertEquals(200, r.status(), r.body());
         @SuppressWarnings("unchecked") Map<String, Object> result = (Map<String, Object>) r.json().get("result");
         assertEquals(Boolean.TRUE, result.get("applied"));

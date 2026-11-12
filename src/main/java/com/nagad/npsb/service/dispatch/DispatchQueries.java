@@ -3,6 +3,7 @@ package com.nagad.npsb.service.dispatch;
 import com.nagad.npsb.entity.EmailDispatch;
 import com.nagad.npsb.repository.EmailDispatchRepository;
 import com.nagad.npsb.service.Settings;
+import com.nagad.npsb.service.OrgCodes;
 import com.nagad.npsb.util.Py;
 import com.nagad.npsb.web.ApiException;
 import org.springframework.stereotype.Component;
@@ -42,11 +43,12 @@ public class DispatchQueries {
         for (String word : words.subList(0, Math.min(words.size(), 10))) {
             String like = "%" + word.replace("%", "").replace("_", "") + "%";
             String names = "(SELECT username FROM users WHERE LOWER(full_name) LIKE LOWER(?))";
-            query = query.and("(t.case_id LIKE ? OR LOWER(p.name) LIKE LOWER(?) OR LOWER(t.subject) LIKE LOWER(?) OR LOWER(t.to_emails) LIKE LOWER(?) "
+            String code = OrgCodes.normalize(word);  // the partner's code: "0103" finds 103
+            query = query.and("(p.org_code = ? OR t.case_id LIKE ? OR LOWER(p.name) LIKE LOWER(?) OR LOWER(t.subject) LIKE LOWER(?) OR LOWER(t.to_emails) LIKE LOWER(?) "
                             + "OR LOWER(t.cc_emails) LIKE LOWER(?) OR LOWER(u.filename) LIKE LOWER(?) OR LOWER(t.submitted_by) LIKE LOWER(?) "
                             + "OR LOWER(t.sent_by) LIKE LOWER(?) OR LOWER(t.remarks) LIKE LOWER(?) OR t.submitted_by IN " + names
                             + " OR t.sent_by IN " + names + ")",
-                    like, like, like, like, like, like, like, like, like, like, like);
+                    code == null ? "" : code, like, like, like, like, like, like, like, like, like, like, like);
         }
         return query;
     }

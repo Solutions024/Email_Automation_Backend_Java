@@ -16,12 +16,12 @@ import java.util.Map;
 @Service
 public class Seed {
 
-    /** Demo partners for a new, empty database: the partners in the sample file, matched by name (KEY_ORG_NM) */
+    /** Demo partners for a new, empty database: the partners in the sample file, with their NPSB_ORG_CODE */
     private static final Object[][] DEMO_PARTNERS = {
-        {"bKash", true, new Object[][]{{"email.example@gmail.com", true}}},
-        {"Rocket", true, new Object[][]{{"email.example@gmail.com", true}}},
-        {"TallyPay", true, new Object[][]{{"email.example@gmail.com", false}}},  // no ACTIVE email -> shows the error message
-        // UPAY is in the sample file but intentionally NOT configured -> "no partner with this name"
+        {"22002", "bKash", true, new Object[][]{{"email.example@gmail.com", true}}},
+        {"22001", "Rocket", true, new Object[][]{{"email.example@gmail.com", true}}},
+        {"22004", "TallyPay", true, new Object[][]{{"email.example@gmail.com", false}}},  // no ACTIVE email -> shows the error message
+        // UPAY is in the sample file but intentionally NOT configured -> "no partner with the code ..."
     };
 
     private final EmailTemplateRepository templates;
@@ -56,10 +56,11 @@ public class Seed {
         if (partners.count() > 0) return;
         for (Object[] p : DEMO_PARTNERS) {
             Partner partner = new Partner();
-            partner.setName((String) p[0]);
-            partner.setIsActive((Boolean) p[1]);
+            partner.setOrgCode((String) p[0]);
+            partner.setName((String) p[1]);
+            partner.setIsActive((Boolean) p[2]);
             partners.save(partner);  // inserted now: its id is set
-            for (Object[] e : (Object[][]) p[2]) {
+            for (Object[] e : (Object[][]) p[3]) {
                 PartnerEmail pe = new PartnerEmail();
                 pe.setEmail((String) e[0]);
                 pe.setIsActive((Boolean) e[1]);

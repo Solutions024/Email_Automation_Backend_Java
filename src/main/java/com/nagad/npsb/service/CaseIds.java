@@ -1,8 +1,10 @@
 package com.nagad.npsb.service;
 
 import com.nagad.npsb.entity.EmailDispatch;
+import com.nagad.npsb.entity.Partner;
 import com.nagad.npsb.entity.Upload;
 import com.nagad.npsb.repository.EmailDispatchRepository;
+import com.nagad.npsb.repository.PartnerRepository;
 import com.nagad.npsb.repository.UploadRepository;
 import com.nagad.npsb.service.dispatch.Sql;
 import com.nagad.npsb.util.Py;
@@ -18,8 +20,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Case IDs: one per email to a partner, e.g. 202611 00 003 1 000 001 -> "202611000031000001":
- *   year (4) + month (2) + "00" + partner id (3, zero padded) + 1 Inward / 2 Outward + "000" + index (3).
+ * Case IDs: one per email to a partner, e.g. 202611 00 103 1 000 001 -> "202611001031000001":
+ *   year (4) + month (2) + "00" + the partner's NPSB_ORG_CODE (at least 3 digits, zero padded) + 1 Inward / 2 Outward
+ *   + "000" + index (3). A partner still without a code: its internal id, as case IDs were before codes.
  * The index counts this partner's emails of this mail type within the month, from 001. Shown in the app;
  * sent with every email (the first email, follow-ups, answers) as invisible text, so a partner's reply
  * that quotes our email carries it and is linked to the right case (Inbox).
@@ -36,8 +39,11 @@ public class CaseIds {
     private final EmailDispatchRepository dispatches;
     private final UploadRepository uploads;
     private final TransactionTemplate tx;
+    private final PartnerRepository partners;
 
-    public CaseIds(Sql sql, EmailDispatchRepository dispatches, UploadRepository uploads, TransactionTemplate tx) {
+    public CaseIds(Sql sql, EmailDispatchRepository dispatches, UploadRepository uploads, TransactionTemplate tx,
+                   PartnerRepository partners) {
+        this.partners = partners;
         this.sql = sql;
         this.dispatches = dispatches;
         this.uploads = uploads;
@@ -48,19 +54,25 @@ public class CaseIds {
         return "inward".equals(mailType) ? "1" : "2";  // outward (and old outward_reminder emails)
     }
 
-    /** Everything but the index: year, month, 00, partner, direction, 000. */
-    public static String prefix(LocalDate month, int partnerId, String mailType) {
-        return String.format("%04d%02d00%03d%s000", month.getYear(), month.getMonthValue(), partnerId, direction(mailType));
+    /** The partner's part of a case ID: its NPSB_ORG_CODE (at least 3 digits), else its id (3 digits). */
+    public static String partnerPart(Partner p) {
+        return p.getOrgCode() != null ? OrgCodes.forCaseId(p.getOrgCode()) : String.format("%03d", p.getId());
+    }
+
+    /** Everything but the index: year, month, 00, partner (partnerPart), direction, 000. */
+    public static String prefix(LocalDate month, String partnerPart, String mailType) {
+        return String.format("%04d%02d00%s%s000", month.getYear(), month.getMonthValue(), partnerPart, direction(mailType));
     }
 
     /**
      * The next case ID for this partner and mail type in this month (not saved: the caller sets it on the email).
      * Reads the database on the current transaction's connection, so it counts what that transaction has flushed.
      */
-    public String next(LocalDate month, int partnerId, String mailType) {
-        String prefix = prefix(month, partnerId, mailType);
+    public String next(LocalDate month, Partner partner, String mailType) {
+        String prefix = prefix(month, partnerPart(partner), mailType);
         int max = 0;
-        for (Object[] row : sql.rows("SELECT case_id FROM email_dispatches WHERE partner_id = ? AND case_id LIKE ?", partnerId, prefix + "%")) {
+        for (Object[] row : sql.rows("SELECT case_id FROM email_dispatches WHERE partner_id = ? AND case_id LIKE ?", partner.getId(),
+                prefix + "%")) {
             String id = (String) row[0];
             String index = id.substring(prefix.length());
             if (index.matches("[0-9]+")) max = Math.max(max, Integer.parseInt(index));
@@ -100,7 +112,9 @@ public class CaseIds {
                     Upload upload = d.getUploadId() == null ? null : uploads.findById(d.getUploadId()).orElse(null);
                     when = upload != null && upload.getUploadedAt() != null ? upload.getUploadedAt() : Py.now();
                 }
-                d.setCaseId(next(when.toLocalDate(), d.getPartnerId(), d.getMailType()));
+                Partner partner = partners.findById(d.getPartnerId()).orElse(null);
+                if (partner == null) continue;
+                d.setCaseId(next(when.toLocalDate(), partner, d.getMailType()));
                 dispatches.flush();  // the next one counts this one
             }
             return missing.size();

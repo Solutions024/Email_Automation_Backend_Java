@@ -46,7 +46,10 @@ tasks.withType<JavaCompile>().configureEach {
 
 // The settings every test run gets: an in-memory H2 database (never MySQL), no .env (NPSB_ENV_FILE=none),
 // and a mail server address where nothing listens (127.0.0.1:9), so sending fails fast instead of mailing anyone
+// SERVER_CONTEXT_PATH empty: the API and contract tests call the routes at the root, as recorded
 val testEnvironment = mapOf(
+    "SERVER_CONTEXT_PATH" to "",
+    "FRONTEND_DIR" to "",  // the API only (FrontendServingTest serves a frontend of its own)
     "NPSB_ENV_FILE" to "none",
     "DATABASE_URL" to "jdbc:h2:mem:npsbtest;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
     "MAIL_PROVIDER" to "smtp",

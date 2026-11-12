@@ -1,6 +1,6 @@
 {
   "description": "HTTP contract of the NPSB backend, recorded by com.nagad.npsb.contract.ApiContractTest. Record: ./gradlew contractTest -PcontractRecord=true; compare: ./gradlew contractTest",
-  "steps_count": 463,
+  "steps_count": 467,
   "steps": [
     {
       "name": "health: livez",
@@ -2306,6 +2306,7 @@
         "path": "/api/partners",
         "auth": "maker",
         "body": {
+          "org_code": "22002",
           "name": "bKash",
           "is_active": true,
           "emails": [
@@ -2332,6 +2333,7 @@
           },
           "partner": {
             "id": 1,
+            "org_code": "22002",
             "name": "bKash",
             "is_active": true,
             "emails": [
@@ -2361,6 +2363,7 @@
         "path": "/api/partners",
         "auth": "maker",
         "body": {
+          "org_code": "022001",
           "name": "  Rocket ",
           "emails": [
             {
@@ -2382,6 +2385,7 @@
           },
           "partner": {
             "id": 2,
+            "org_code": "22001",
             "name": "Rocket",
             "is_active": true,
             "emails": [
@@ -2404,6 +2408,7 @@
         "path": "/api/partners",
         "auth": "checker",
         "body": {
+          "org_code": 22004,
           "name": "TallyPay",
           "is_active": false,
           "emails": [
@@ -2426,6 +2431,7 @@
           },
           "partner": {
             "id": 3,
+            "org_code": "22004",
             "name": "TallyPay",
             "is_active": false,
             "emails": [
@@ -2448,6 +2454,7 @@
         "path": "/api/partners",
         "auth": "checker",
         "body": {
+          "org_code": "22005",
           "name": "SureCash",
           "emails": [
             {
@@ -2470,6 +2477,7 @@
           },
           "partner": {
             "id": 4,
+            "org_code": "22005",
             "name": "SureCash",
             "is_active": true,
             "emails": [
@@ -2492,6 +2500,7 @@
         "path": "/api/partners",
         "auth": "admin",
         "body": {
+          "org_code": "999",
           "name": "Upay Test",
           "emails": [ ]
         }
@@ -2509,6 +2518,7 @@
           },
           "partner": {
             "id": 5,
+            "org_code": "999",
             "name": "Upay Test",
             "is_active": true,
             "emails": [ ]
@@ -2523,6 +2533,7 @@
         "path": "/api/partners",
         "auth": "maker",
         "body": {
+          "org_code": "777",
           "name": " BKASH ",
           "emails": [ ]
         }
@@ -2538,12 +2549,78 @@
       }
     },
     {
+      "name": "partners: no code 400",
+      "request": {
+        "method": "POST",
+        "path": "/api/partners",
+        "auth": "maker",
+        "body": {
+          "name": "Upay",
+          "emails": [ ]
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "detail": "Enter the partner's NPSB_ORG_CODE (a number, e.g. 103)."
+        }
+      }
+    },
+    {
+      "name": "partners: code that is not a number 400",
+      "request": {
+        "method": "POST",
+        "path": "/api/partners",
+        "auth": "maker",
+        "body": {
+          "org_code": "22-003",
+          "name": "Upay",
+          "emails": [ ]
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "detail": "NPSB_ORG_CODE must be a number of up to 12 digits (e.g. 103), not '22-003'."
+        }
+      }
+    },
+    {
+      "name": "partners: another partner's code with leading zeros 400",
+      "request": {
+        "method": "POST",
+        "path": "/api/partners",
+        "auth": "maker",
+        "body": {
+          "org_code": "0022002",
+          "name": "Upay",
+          "emails": [ ]
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "detail": "Partner \"bKash\" already has the code 22002 (leading zeros don't matter: 022002 is the same code)."
+        }
+      }
+    },
+    {
       "name": "partners: address listed twice 400",
       "request": {
         "method": "POST",
         "path": "/api/partners",
         "auth": "maker",
         "body": {
+          "org_code": "300",
           "name": "Upay",
           "emails": [
             {
@@ -2572,6 +2649,7 @@
         "path": "/api/partners",
         "auth": "maker",
         "body": {
+          "org_code": "300",
           "name": "Upay",
           "emails": [
             {
@@ -2607,7 +2685,7 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "detail": "Enter the partner name exactly as in the KEY_ORG_NM column."
+          "detail": "Enter the partner name."
         }
       }
     },
@@ -2779,6 +2857,7 @@
           },
           "partner": {
             "id": 2,
+            "org_code": "22001",
             "name": "Rocket",
             "is_active": true,
             "emails": [
@@ -2819,6 +2898,28 @@
         },
         "body": {
           "detail": "A partner named \"bKash\" already exists."
+        }
+      }
+    },
+    {
+      "name": "partners: change to another partner's code 400",
+      "request": {
+        "method": "PUT",
+        "path": "/api/partners/2",
+        "auth": "maker",
+        "body": {
+          "org_code": "22002",
+          "name": "Rocket",
+          "emails": [ ]
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "detail": "Partner \"bKash\" already has the code 22002 (leading zeros don't matter: 022002 is the same code)."
         }
       }
     },
@@ -2888,7 +2989,16 @@
         },
         "body": [
           {
+            "id": 5,
+            "org_code": "999",
+            "name": "Upay Test",
+            "is_active": true,
+            "emails": [ ],
+            "pending_request_id": null
+          },
+          {
             "id": 2,
+            "org_code": "22001",
             "name": "Rocket",
             "is_active": true,
             "emails": [
@@ -2910,44 +3020,8 @@
             "pending_request_id": null
           },
           {
-            "id": 4,
-            "name": "SureCash",
-            "is_active": true,
-            "emails": [
-              {
-                "id": 5,
-                "email": "desk@surecash.net",
-                "is_active": false,
-                "problem": null,
-                "problem_at": null
-              }
-            ],
-            "pending_request_id": null
-          },
-          {
-            "id": 3,
-            "name": "TallyPay",
-            "is_active": false,
-            "emails": [
-              {
-                "id": 4,
-                "email": "ops@tallypay.com.bd",
-                "is_active": true,
-                "problem": null,
-                "problem_at": null
-              }
-            ],
-            "pending_request_id": null
-          },
-          {
-            "id": 5,
-            "name": "Upay Test",
-            "is_active": true,
-            "emails": [ ],
-            "pending_request_id": null
-          },
-          {
             "id": 1,
+            "org_code": "22002",
             "name": "bKash",
             "is_active": true,
             "emails": [
@@ -2962,6 +3036,38 @@
                 "id": 2,
                 "email": "bad.box@bkash.com",
                 "is_active": true,
+                "problem": null,
+                "problem_at": null
+              }
+            ],
+            "pending_request_id": null
+          },
+          {
+            "id": 3,
+            "org_code": "22004",
+            "name": "TallyPay",
+            "is_active": false,
+            "emails": [
+              {
+                "id": 4,
+                "email": "ops@tallypay.com.bd",
+                "is_active": true,
+                "problem": null,
+                "problem_at": null
+              }
+            ],
+            "pending_request_id": null
+          },
+          {
+            "id": 4,
+            "org_code": "22005",
+            "name": "SureCash",
+            "is_active": true,
+            "emails": [
+              {
+                "id": 5,
+                "email": "desk@surecash.net",
+                "is_active": false,
                 "problem": null,
                 "problem_at": null
               }
@@ -2991,7 +3097,7 @@
             "entity_id": 2,
             "action": "update",
             "action_label": "Change",
-            "summary": "Rocket",
+            "summary": "22001 · Rocket",
             "status": "applied",
             "before": {
               "emails": [
@@ -3001,7 +3107,8 @@
                 }
               ],
               "is_active": true,
-              "name": "Rocket"
+              "name": "Rocket",
+              "org_code": "22001"
             },
             "after": {
               "emails": [
@@ -3017,7 +3124,8 @@
                 }
               ],
               "is_active": true,
-              "name": "Rocket"
+              "name": "Rocket",
+              "org_code": null
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker User",
@@ -3035,13 +3143,14 @@
             "entity_id": 5,
             "action": "create",
             "action_label": "New",
-            "summary": "Upay Test",
+            "summary": "999 · Upay Test",
             "status": "applied",
             "before": null,
             "after": {
               "emails": [ ],
               "is_active": true,
-              "name": "Upay Test"
+              "name": "Upay Test",
+              "org_code": "999"
             },
             "requested_by": "admin",
             "requested_by_name": "Administrator",
@@ -3059,7 +3168,7 @@
             "entity_id": 4,
             "action": "create",
             "action_label": "New",
-            "summary": "SureCash",
+            "summary": "22005 · SureCash",
             "status": "applied",
             "before": null,
             "after": {
@@ -3071,7 +3180,8 @@
                 }
               ],
               "is_active": true,
-              "name": "SureCash"
+              "name": "SureCash",
+              "org_code": "22005"
             },
             "requested_by": "checker.user",
             "requested_by_name": "Checker User",
@@ -3089,7 +3199,7 @@
             "entity_id": 3,
             "action": "create",
             "action_label": "New",
-            "summary": "TallyPay",
+            "summary": "22004 · TallyPay",
             "status": "applied",
             "before": null,
             "after": {
@@ -3101,7 +3211,8 @@
                 }
               ],
               "is_active": false,
-              "name": "TallyPay"
+              "name": "TallyPay",
+              "org_code": "22004"
             },
             "requested_by": "checker.user",
             "requested_by_name": "Checker User",
@@ -3119,7 +3230,7 @@
             "entity_id": 2,
             "action": "create",
             "action_label": "New",
-            "summary": "Rocket",
+            "summary": "22001 · Rocket",
             "status": "applied",
             "before": null,
             "after": {
@@ -3131,7 +3242,8 @@
                 }
               ],
               "is_active": true,
-              "name": "  Rocket "
+              "name": "  Rocket ",
+              "org_code": "022001"
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker User",
@@ -3149,7 +3261,7 @@
             "entity_id": 1,
             "action": "create",
             "action_label": "New",
-            "summary": "bKash",
+            "summary": "22002 · bKash",
             "status": "applied",
             "before": null,
             "after": {
@@ -3166,7 +3278,8 @@
                 }
               ],
               "is_active": true,
-              "name": "bKash"
+              "name": "bKash",
+              "org_code": "22002"
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker User",
@@ -3228,7 +3341,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -3501,7 +3614,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -3642,7 +3755,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -3810,7 +3923,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -4049,7 +4162,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -4699,7 +4812,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -5224,7 +5337,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -5386,7 +5499,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -5706,7 +5819,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -5942,7 +6055,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -6278,7 +6391,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -6590,7 +6703,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -7054,7 +7167,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -7203,7 +7316,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -7523,7 +7636,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",
@@ -8008,7 +8121,7 @@
             "entity_id": 2,
             "action": "update",
             "action_label": "Change",
-            "summary": "Rocket",
+            "summary": "22001 · Rocket",
             "status": "applied",
             "before": {
               "emails": [
@@ -8018,7 +8131,8 @@
                 }
               ],
               "is_active": true,
-              "name": "Rocket"
+              "name": "Rocket",
+              "org_code": "22001"
             },
             "after": {
               "emails": [
@@ -8034,7 +8148,8 @@
                 }
               ],
               "is_active": true,
-              "name": "Rocket"
+              "name": "Rocket",
+              "org_code": null
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker User",
@@ -8052,13 +8167,14 @@
             "entity_id": 5,
             "action": "create",
             "action_label": "New",
-            "summary": "Upay Test",
+            "summary": "999 · Upay Test",
             "status": "applied",
             "before": null,
             "after": {
               "emails": [ ],
               "is_active": true,
-              "name": "Upay Test"
+              "name": "Upay Test",
+              "org_code": "999"
             },
             "requested_by": "admin",
             "requested_by_name": "Administrator",
@@ -8076,7 +8192,7 @@
             "entity_id": 4,
             "action": "create",
             "action_label": "New",
-            "summary": "SureCash",
+            "summary": "22005 · SureCash",
             "status": "applied",
             "before": null,
             "after": {
@@ -8088,7 +8204,8 @@
                 }
               ],
               "is_active": true,
-              "name": "SureCash"
+              "name": "SureCash",
+              "org_code": "22005"
             },
             "requested_by": "checker.user",
             "requested_by_name": "Checker User",
@@ -8106,7 +8223,7 @@
             "entity_id": 3,
             "action": "create",
             "action_label": "New",
-            "summary": "TallyPay",
+            "summary": "22004 · TallyPay",
             "status": "applied",
             "before": null,
             "after": {
@@ -8118,7 +8235,8 @@
                 }
               ],
               "is_active": false,
-              "name": "TallyPay"
+              "name": "TallyPay",
+              "org_code": "22004"
             },
             "requested_by": "checker.user",
             "requested_by_name": "Checker User",
@@ -8136,7 +8254,7 @@
             "entity_id": 2,
             "action": "create",
             "action_label": "New",
-            "summary": "Rocket",
+            "summary": "22001 · Rocket",
             "status": "applied",
             "before": null,
             "after": {
@@ -8148,7 +8266,8 @@
                 }
               ],
               "is_active": true,
-              "name": "  Rocket "
+              "name": "  Rocket ",
+              "org_code": "022001"
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker User",
@@ -8166,7 +8285,7 @@
             "entity_id": 1,
             "action": "create",
             "action_label": "New",
-            "summary": "bKash",
+            "summary": "22002 · bKash",
             "status": "applied",
             "before": null,
             "after": {
@@ -8183,7 +8302,8 @@
                 }
               ],
               "is_active": true,
-              "name": "bKash"
+              "name": "bKash",
+              "org_code": "22002"
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker User",
@@ -8542,6 +8662,7 @@
                 "NPSB_TXN_RRN is blank",
                 "TXN_AMOUNT is blank",
                 "KEY_ORG_NM is blank",
+                "NPSB_ORG_CODE is blank",
                 "TXN_DIRECTION is blank"
               ]
             }
@@ -8974,6 +9095,7 @@
                 "NPSB_TXN_RRN is blank",
                 "TXN_AMOUNT is blank",
                 "KEY_ORG_NM is blank",
+                "NPSB_ORG_CODE is blank",
                 "TXN_DIRECTION is blank"
               ]
             }
@@ -9017,9 +9139,35 @@
           "valid_rows": 3,
           "groups": [
             {
-              "key": "bkash|inward",
+              "key": "22001|outward",
+              "mail_type": "outward",
+              "mail_type_label": "Outward Transaction",
+              "partner_code": "22001",
+              "partner_name": "Rocket",
+              "partner_configured": true,
+              "txn_count": 1,
+              "total_amount": 1500.0,
+              "transactions": [
+                {
+                  "excel_row": 4,
+                  "rrn": "624517090011",
+                  "approval_datetime": "02-SEP-26 05.12.40.100000 PM",
+                  "txn_type": "NPSB - NAGAD to MFS",
+                  "txn_id": "00043DQ1",
+                  "status": "APPROVED",
+                  "amount": 1500.0,
+                  "from_account_name": "Customer Name",
+                  "to_account_type": "CUSTOMER",
+                  "stan": "090011",
+                  "org_code": "022001"
+                }
+              ]
+            },
+            {
+              "key": "22002|inward",
               "mail_type": "inward",
               "mail_type_label": "Inward Transaction",
+              "partner_code": "22002",
               "partner_name": "bKash",
               "partner_configured": true,
               "txn_count": 2,
@@ -9052,30 +9200,6 @@
                   "org_code": "022002"
                 }
               ]
-            },
-            {
-              "key": "rocket|outward",
-              "mail_type": "outward",
-              "mail_type_label": "Outward Transaction",
-              "partner_name": "Rocket",
-              "partner_configured": true,
-              "txn_count": 1,
-              "total_amount": 1500.0,
-              "transactions": [
-                {
-                  "excel_row": 4,
-                  "rrn": "624517090011",
-                  "approval_datetime": "02-SEP-26 05.12.40.100000 PM",
-                  "txn_type": "NPSB - NAGAD to MFS",
-                  "txn_id": "00043DQ1",
-                  "status": "APPROVED",
-                  "amount": 1500.0,
-                  "from_account_name": "Customer Name",
-                  "to_account_type": "CUSTOMER",
-                  "stan": "090011",
-                  "org_code": "022001"
-                }
-              ]
             }
           ],
           "duplicates": [ ]
@@ -9101,9 +9225,10 @@
           "valid_rows": 5,
           "groups": [
             {
-              "key": "bkash|outward",
+              "key": "22002|outward",
               "mail_type": "outward",
               "mail_type_label": "Outward Transaction",
+              "partner_code": "22002",
               "partner_name": "bKash",
               "partner_configured": true,
               "txn_count": 1,
@@ -9125,33 +9250,35 @@
               ]
             },
             {
-              "key": "surecash|inward",
-              "mail_type": "inward",
-              "mail_type_label": "Inward Transaction",
-              "partner_name": "SureCash",
-              "partner_configured": true,
+              "key": "22003|outward",
+              "mail_type": "outward",
+              "mail_type_label": "Outward Transaction",
+              "partner_code": "22003",
+              "partner_name": "Upay",
+              "partner_configured": false,
               "txn_count": 1,
-              "total_amount": 99.99,
+              "total_amount": 1250.5,
               "transactions": [
                 {
-                  "excel_row": 4,
-                  "rrn": "700000000003",
-                  "approval_datetime": "04-09-2026 00:00:00",
-                  "txn_type": "NPSB - MFS to NAGAD",
-                  "txn_id": "T0003",
+                  "excel_row": 2,
+                  "rrn": "700000000001",
+                  "approval_datetime": "2026-09-03 10:15:00",
+                  "txn_type": "NPSB - NAGAD to MFS",
+                  "txn_id": "T0001",
                   "status": "APPROVED",
-                  "amount": 99.99,
-                  "from_account_name": "Cat Hossain",
-                  "to_account_type": "MERCHANT",
-                  "stan": "123458",
-                  "org_code": "022005"
+                  "amount": 1250.5,
+                  "from_account_name": "Ana Rahman",
+                  "to_account_type": "CUSTOMER",
+                  "stan": "012345",
+                  "org_code": "022003"
                 }
               ]
             },
             {
-              "key": "tallypay|inward",
+              "key": "22004|inward",
               "mail_type": "inward",
               "mail_type_label": "Inward Transaction",
+              "partner_code": "22004",
               "partner_name": "TallyPay",
               "partner_configured": true,
               "txn_count": 1,
@@ -9173,26 +9300,27 @@
               ]
             },
             {
-              "key": "upay|outward",
-              "mail_type": "outward",
-              "mail_type_label": "Outward Transaction",
-              "partner_name": "Upay",
-              "partner_configured": false,
+              "key": "22005|inward",
+              "mail_type": "inward",
+              "mail_type_label": "Inward Transaction",
+              "partner_code": "22005",
+              "partner_name": "SureCash",
+              "partner_configured": true,
               "txn_count": 1,
-              "total_amount": 1250.5,
+              "total_amount": 99.99,
               "transactions": [
                 {
-                  "excel_row": 2,
-                  "rrn": "700000000001",
-                  "approval_datetime": "2026-09-03 10:15:00",
-                  "txn_type": "NPSB - NAGAD to MFS",
-                  "txn_id": "T0001",
+                  "excel_row": 4,
+                  "rrn": "700000000003",
+                  "approval_datetime": "04-09-2026 00:00:00",
+                  "txn_type": "NPSB - MFS to NAGAD",
+                  "txn_id": "T0003",
                   "status": "APPROVED",
-                  "amount": 1250.5,
-                  "from_account_name": "Ana Rahman",
-                  "to_account_type": "CUSTOMER",
-                  "stan": "012345",
-                  "org_code": "022003"
+                  "amount": 99.99,
+                  "from_account_name": "Cat Hossain",
+                  "to_account_type": "MERCHANT",
+                  "stan": "123458",
+                  "org_code": "022005"
                 }
               ]
             }
@@ -9511,46 +9639,8 @@
           "emails": [
             {
               "id": 1,
-              "case_id": "<clock-month>000011000001",
-              "partner_name": "bKash",
-              "to": [
-                "dispute@bkash.com",
-                "bad.box@bkash.com"
-              ],
-              "cc": [ ],
-              "subject": "Settlement pending - bKash - 02 Sep 2026",
-              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
-              "is_edited": false,
-              "template_id": 3,
-              "txn_count": 2,
-              "total_amount": 25500.0,
-              "status": "PREPARED",
-              "attempts": 0,
-              "error": null,
-              "sent_at": null,
-              "delivery_issues": [ ],
-              "upload_id": 1,
-              "upload_filename": "sample.xlsx",
-              "mail_type": "inward",
-              "mail_type_label": "Inward Transaction",
-              "submitted_by": null,
-              "submitted_by_name": null,
-              "submitted_at": null,
-              "sent_by": null,
-              "sent_by_name": null,
-              "reply_status": "not_received",
-              "reply_status_by_name": null,
-              "reply_status_at": null,
-              "followup_count": 0,
-              "last_followup_at": null,
-              "followup_due": false,
-              "remarks": "",
-              "remarks_by_name": null,
-              "remarks_at": null
-            },
-            {
-              "id": 2,
-              "case_id": "<clock-month>000022000001",
+              "case_id": "<clock-month>00220012000001",
+              "partner_code": "22001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -9586,6 +9676,46 @@
               "remarks": "",
               "remarks_by_name": null,
               "remarks_at": null
+            },
+            {
+              "id": 2,
+              "case_id": "<clock-month>00220021000001",
+              "partner_code": "22002",
+              "partner_name": "bKash",
+              "to": [
+                "dispute@bkash.com",
+                "bad.box@bkash.com"
+              ],
+              "cc": [ ],
+              "subject": "Settlement pending - bKash - 02 Sep 2026",
+              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
+              "is_edited": false,
+              "template_id": 3,
+              "txn_count": 2,
+              "total_amount": 25500.0,
+              "status": "PREPARED",
+              "attempts": 0,
+              "error": null,
+              "sent_at": null,
+              "delivery_issues": [ ],
+              "upload_id": 1,
+              "upload_filename": "sample.xlsx",
+              "mail_type": "inward",
+              "mail_type_label": "Inward Transaction",
+              "submitted_by": null,
+              "submitted_by_name": null,
+              "submitted_at": null,
+              "sent_by": null,
+              "sent_by_name": null,
+              "reply_status": "not_received",
+              "reply_status_by_name": null,
+              "reply_status_at": null,
+              "followup_count": 0,
+              "last_followup_at": null,
+              "followup_due": false,
+              "remarks": "",
+              "remarks_by_name": null,
+              "remarks_at": null
             }
           ]
         }
@@ -9595,7 +9725,7 @@
       "name": "emails: attachment (.xlsx)",
       "request": {
         "method": "GET",
-        "path": "/api/emails/1/attachment",
+        "path": "/api/emails/2/attachment",
         "auth": "maker"
       },
       "response": {
@@ -9628,7 +9758,7 @@
       "name": "emails: edit",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/2",
+        "path": "/api/emails/1",
         "auth": "maker",
         "body": {
           "subject": "  Claim confirmation - Rocket  ",
@@ -9641,8 +9771,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 2,
-          "case_id": "<clock-month>000022000001",
+          "id": 1,
+          "case_id": "<clock-month>00220012000001",
+          "partner_code": "22001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -9685,7 +9816,7 @@
       "name": "emails: edit with an empty subject 422",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/2",
+        "path": "/api/emails/1",
         "auth": "maker",
         "body": {
           "subject": "   ",
@@ -9763,46 +9894,8 @@
           "emails": [
             {
               "id": 1,
-              "case_id": "<clock-month>000011000001",
-              "partner_name": "bKash",
-              "to": [
-                "dispute@bkash.com",
-                "bad.box@bkash.com"
-              ],
-              "cc": [ ],
-              "subject": "Settlement pending - bKash - 02 Sep 2026",
-              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
-              "is_edited": false,
-              "template_id": 3,
-              "txn_count": 2,
-              "total_amount": 25500.0,
-              "status": "PREPARED",
-              "attempts": 0,
-              "error": null,
-              "sent_at": null,
-              "delivery_issues": [ ],
-              "upload_id": 1,
-              "upload_filename": "sample.xlsx",
-              "mail_type": "inward",
-              "mail_type_label": "Inward Transaction",
-              "submitted_by": null,
-              "submitted_by_name": null,
-              "submitted_at": null,
-              "sent_by": null,
-              "sent_by_name": null,
-              "reply_status": "not_received",
-              "reply_status_by_name": null,
-              "reply_status_at": null,
-              "followup_count": 0,
-              "last_followup_at": null,
-              "followup_due": false,
-              "remarks": "",
-              "remarks_by_name": null,
-              "remarks_at": null
-            },
-            {
-              "id": 2,
-              "case_id": "<clock-month>000022000001",
+              "case_id": "<clock-month>00220012000001",
+              "partner_code": "22001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -9838,6 +9931,46 @@
               "remarks": "",
               "remarks_by_name": null,
               "remarks_at": null
+            },
+            {
+              "id": 2,
+              "case_id": "<clock-month>00220021000001",
+              "partner_code": "22002",
+              "partner_name": "bKash",
+              "to": [
+                "dispute@bkash.com",
+                "bad.box@bkash.com"
+              ],
+              "cc": [ ],
+              "subject": "Settlement pending - bKash - 02 Sep 2026",
+              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
+              "is_edited": false,
+              "template_id": 3,
+              "txn_count": 2,
+              "total_amount": 25500.0,
+              "status": "PREPARED",
+              "attempts": 0,
+              "error": null,
+              "sent_at": null,
+              "delivery_issues": [ ],
+              "upload_id": 1,
+              "upload_filename": "sample.xlsx",
+              "mail_type": "inward",
+              "mail_type_label": "Inward Transaction",
+              "submitted_by": null,
+              "submitted_by_name": null,
+              "submitted_at": null,
+              "sent_by": null,
+              "sent_by_name": null,
+              "reply_status": "not_received",
+              "reply_status_by_name": null,
+              "reply_status_at": null,
+              "followup_count": 0,
+              "last_followup_at": null,
+              "followup_due": false,
+              "remarks": "",
+              "remarks_by_name": null,
+              "remarks_at": null
             }
           ]
         }
@@ -9847,7 +9980,7 @@
       "name": "emails: discard the edit",
       "request": {
         "method": "DELETE",
-        "path": "/api/emails/2/edits",
+        "path": "/api/emails/1/edits",
         "auth": "maker"
       },
       "response": {
@@ -9856,8 +9989,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 2,
-          "case_id": "<clock-month>000022000001",
+          "id": 1,
+          "case_id": "<clock-month>00220012000001",
+          "partner_code": "22001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -9919,46 +10053,8 @@
           "emails": [
             {
               "id": 1,
-              "case_id": "<clock-month>000011000001",
-              "partner_name": "bKash",
-              "to": [
-                "dispute@bkash.com",
-                "bad.box@bkash.com"
-              ],
-              "cc": [ ],
-              "subject": "Settlement pending - bKash - 02 Sep 2026",
-              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
-              "is_edited": false,
-              "template_id": 3,
-              "txn_count": 2,
-              "total_amount": 25500.0,
-              "status": "PREPARED",
-              "attempts": 0,
-              "error": null,
-              "sent_at": null,
-              "delivery_issues": [ ],
-              "upload_id": 1,
-              "upload_filename": "sample.xlsx",
-              "mail_type": "inward",
-              "mail_type_label": "Inward Transaction",
-              "submitted_by": null,
-              "submitted_by_name": null,
-              "submitted_at": null,
-              "sent_by": null,
-              "sent_by_name": null,
-              "reply_status": "not_received",
-              "reply_status_by_name": null,
-              "reply_status_at": null,
-              "followup_count": 0,
-              "last_followup_at": null,
-              "followup_due": false,
-              "remarks": "",
-              "remarks_by_name": null,
-              "remarks_at": null
-            },
-            {
-              "id": 2,
-              "case_id": "<clock-month>000022000001",
+              "case_id": "<clock-month>00220012000001",
+              "partner_code": "22001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -9994,6 +10090,46 @@
               "remarks": "",
               "remarks_by_name": null,
               "remarks_at": null
+            },
+            {
+              "id": 2,
+              "case_id": "<clock-month>00220021000001",
+              "partner_code": "22002",
+              "partner_name": "bKash",
+              "to": [
+                "dispute@bkash.com",
+                "bad.box@bkash.com"
+              ],
+              "cc": [ ],
+              "subject": "Settlement pending - bKash - 02 Sep 2026",
+              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
+              "is_edited": false,
+              "template_id": 3,
+              "txn_count": 2,
+              "total_amount": 25500.0,
+              "status": "PREPARED",
+              "attempts": 0,
+              "error": null,
+              "sent_at": null,
+              "delivery_issues": [ ],
+              "upload_id": 1,
+              "upload_filename": "sample.xlsx",
+              "mail_type": "inward",
+              "mail_type_label": "Inward Transaction",
+              "submitted_by": null,
+              "submitted_by_name": null,
+              "submitted_at": null,
+              "sent_by": null,
+              "sent_by_name": null,
+              "reply_status": "not_received",
+              "reply_status_by_name": null,
+              "reply_status_at": null,
+              "followup_count": 0,
+              "last_followup_at": null,
+              "followup_due": false,
+              "remarks": "",
+              "remarks_by_name": null,
+              "remarks_at": null
             }
           ]
         }
@@ -10003,7 +10139,7 @@
       "name": "emails: rebuild from a template",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/2/template",
+        "path": "/api/emails/1/template",
         "auth": "maker",
         "body": {
           "template_id": 2
@@ -10015,8 +10151,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 2,
-          "case_id": "<clock-month>000022000001",
+          "id": 1,
+          "case_id": "<clock-month>00220012000001",
+          "partner_code": "22001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -10059,7 +10196,7 @@
       "name": "emails: rebuild from a template of another mail type 400",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/2/template",
+        "path": "/api/emails/1/template",
         "auth": "maker",
         "body": {
           "template_id": 3
@@ -10079,7 +10216,7 @@
       "name": "emails: rebuild from an unknown template 404",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/2/template",
+        "path": "/api/emails/1/template",
         "auth": "maker",
         "body": {
           "template_id": 9999
@@ -10099,7 +10236,7 @@
       "name": "emails: rebuild without a template id 422",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/2/template",
+        "path": "/api/emails/1/template",
         "auth": "maker",
         "body": { }
       },
@@ -10138,46 +10275,8 @@
         "body": [
           {
             "id": 1,
-            "case_id": "<clock-month>000011000001",
-            "partner_name": "bKash",
-            "to": [
-              "dispute@bkash.com",
-              "bad.box@bkash.com"
-            ],
-            "cc": [ ],
-            "subject": "Settlement pending - bKash - 02 Sep 2026",
-            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
-            "is_edited": false,
-            "template_id": 3,
-            "txn_count": 2,
-            "total_amount": 25500.0,
-            "status": "PREPARED",
-            "attempts": 0,
-            "error": null,
-            "sent_at": null,
-            "delivery_issues": [ ],
-            "upload_id": 1,
-            "upload_filename": "sample.xlsx",
-            "mail_type": "inward",
-            "mail_type_label": "Inward Transaction",
-            "submitted_by": null,
-            "submitted_by_name": null,
-            "submitted_at": null,
-            "sent_by": null,
-            "sent_by_name": null,
-            "reply_status": "not_received",
-            "reply_status_by_name": null,
-            "reply_status_at": null,
-            "followup_count": 0,
-            "last_followup_at": null,
-            "followup_due": false,
-            "remarks": "",
-            "remarks_by_name": null,
-            "remarks_at": null
-          },
-          {
-            "id": 2,
-            "case_id": "<clock-month>000022000001",
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -10199,6 +10298,46 @@
             "upload_filename": "sample.xlsx",
             "mail_type": "outward",
             "mail_type_label": "Outward Transaction",
+            "submitted_by": null,
+            "submitted_by_name": null,
+            "submitted_at": null,
+            "sent_by": null,
+            "sent_by_name": null,
+            "reply_status": "not_received",
+            "reply_status_by_name": null,
+            "reply_status_at": null,
+            "followup_count": 0,
+            "last_followup_at": null,
+            "followup_due": false,
+            "remarks": "",
+            "remarks_by_name": null,
+            "remarks_at": null
+          },
+          {
+            "id": 2,
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
+            "partner_name": "bKash",
+            "to": [
+              "dispute@bkash.com",
+              "bad.box@bkash.com"
+            ],
+            "cc": [ ],
+            "subject": "Settlement pending - bKash - 02 Sep 2026",
+            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
+            "is_edited": false,
+            "template_id": 3,
+            "txn_count": 2,
+            "total_amount": 25500.0,
+            "status": "PREPARED",
+            "attempts": 0,
+            "error": null,
+            "sent_at": null,
+            "delivery_issues": [ ],
+            "upload_id": 1,
+            "upload_filename": "sample.xlsx",
+            "mail_type": "inward",
+            "mail_type_label": "Inward Transaction",
             "submitted_by": null,
             "submitted_by_name": null,
             "submitted_at": null,
@@ -10251,46 +10390,8 @@
           "emails": [
             {
               "id": 1,
-              "case_id": "<clock-month>000011000001",
-              "partner_name": "bKash",
-              "to": [
-                "dispute@bkash.com",
-                "bad.box@bkash.com"
-              ],
-              "cc": [ ],
-              "subject": "Settlement pending - bKash - 02 Sep 2026",
-              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
-              "is_edited": false,
-              "template_id": 3,
-              "txn_count": 2,
-              "total_amount": 25500.0,
-              "status": "PENDING",
-              "attempts": 0,
-              "error": null,
-              "sent_at": null,
-              "delivery_issues": [ ],
-              "upload_id": 1,
-              "upload_filename": "sample.xlsx",
-              "mail_type": "inward",
-              "mail_type_label": "Inward Transaction",
-              "submitted_by": "maker.user",
-              "submitted_by_name": "Maker User",
-              "submitted_at": "<datetime>",
-              "sent_by": null,
-              "sent_by_name": null,
-              "reply_status": "not_received",
-              "reply_status_by_name": null,
-              "reply_status_at": null,
-              "followup_count": 0,
-              "last_followup_at": null,
-              "followup_due": false,
-              "remarks": "",
-              "remarks_by_name": null,
-              "remarks_at": null
-            },
-            {
-              "id": 2,
-              "case_id": "<clock-month>000022000001",
+              "case_id": "<clock-month>00220012000001",
+              "partner_code": "22001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -10312,6 +10413,46 @@
               "upload_filename": "sample.xlsx",
               "mail_type": "outward",
               "mail_type_label": "Outward Transaction",
+              "submitted_by": "maker.user",
+              "submitted_by_name": "Maker User",
+              "submitted_at": "<datetime>",
+              "sent_by": null,
+              "sent_by_name": null,
+              "reply_status": "not_received",
+              "reply_status_by_name": null,
+              "reply_status_at": null,
+              "followup_count": 0,
+              "last_followup_at": null,
+              "followup_due": false,
+              "remarks": "",
+              "remarks_by_name": null,
+              "remarks_at": null
+            },
+            {
+              "id": 2,
+              "case_id": "<clock-month>00220021000001",
+              "partner_code": "22002",
+              "partner_name": "bKash",
+              "to": [
+                "dispute@bkash.com",
+                "bad.box@bkash.com"
+              ],
+              "cc": [ ],
+              "subject": "Settlement pending - bKash - 02 Sep 2026",
+              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
+              "is_edited": false,
+              "template_id": 3,
+              "txn_count": 2,
+              "total_amount": 25500.0,
+              "status": "PENDING",
+              "attempts": 0,
+              "error": null,
+              "sent_at": null,
+              "delivery_issues": [ ],
+              "upload_id": 1,
+              "upload_filename": "sample.xlsx",
+              "mail_type": "inward",
+              "mail_type_label": "Inward Transaction",
               "submitted_by": "maker.user",
               "submitted_by_name": "Maker User",
               "submitted_at": "<datetime>",
@@ -10369,7 +10510,7 @@
       "name": "emails: a user can't edit a pending email 403",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/2",
+        "path": "/api/emails/1",
         "auth": "maker",
         "body": {
           "subject": "x",
@@ -10390,7 +10531,7 @@
       "name": "emails: a user can't discard edits of a pending email 403",
       "request": {
         "method": "DELETE",
-        "path": "/api/emails/2/edits",
+        "path": "/api/emails/1/edits",
         "auth": "maker"
       },
       "response": {
@@ -10407,7 +10548,7 @@
       "name": "emails: an admin edits a pending email",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/2",
+        "path": "/api/emails/1",
         "auth": "admin",
         "body": {
           "subject": "Claim confirmation needed - Rocket",
@@ -10420,8 +10561,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 2,
-          "case_id": "<clock-month>000022000001",
+          "id": 1,
+          "case_id": "<clock-month>00220012000001",
+          "partner_code": "22001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -10464,7 +10606,7 @@
       "name": "emails: an admin discards the edit (rebuilt at once)",
       "request": {
         "method": "DELETE",
-        "path": "/api/emails/2/edits",
+        "path": "/api/emails/1/edits",
         "auth": "admin"
       },
       "response": {
@@ -10473,8 +10615,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 2,
-          "case_id": "<clock-month>000022000001",
+          "id": 1,
+          "case_id": "<clock-month>00220012000001",
+          "partner_code": "22001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -10528,46 +10671,8 @@
         "body": [
           {
             "id": 1,
-            "case_id": "<clock-month>000011000001",
-            "partner_name": "bKash",
-            "to": [
-              "dispute@bkash.com",
-              "bad.box@bkash.com"
-            ],
-            "cc": [ ],
-            "subject": "Settlement pending - bKash - 02 Sep 2026",
-            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
-            "is_edited": false,
-            "template_id": 3,
-            "txn_count": 2,
-            "total_amount": 25500.0,
-            "status": "PENDING",
-            "attempts": 0,
-            "error": null,
-            "sent_at": null,
-            "delivery_issues": [ ],
-            "upload_id": 1,
-            "upload_filename": "sample.xlsx",
-            "mail_type": "inward",
-            "mail_type_label": "Inward Transaction",
-            "submitted_by": "maker.user",
-            "submitted_by_name": "Maker User",
-            "submitted_at": "<datetime>",
-            "sent_by": null,
-            "sent_by_name": null,
-            "reply_status": "not_received",
-            "reply_status_by_name": null,
-            "reply_status_at": null,
-            "followup_count": 0,
-            "last_followup_at": null,
-            "followup_due": false,
-            "remarks": "",
-            "remarks_by_name": null,
-            "remarks_at": null
-          },
-          {
-            "id": 2,
-            "case_id": "<clock-month>000022000001",
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -10589,6 +10694,46 @@
             "upload_filename": "sample.xlsx",
             "mail_type": "outward",
             "mail_type_label": "Outward Transaction",
+            "submitted_by": "maker.user",
+            "submitted_by_name": "Maker User",
+            "submitted_at": "<datetime>",
+            "sent_by": null,
+            "sent_by_name": null,
+            "reply_status": "not_received",
+            "reply_status_by_name": null,
+            "reply_status_at": null,
+            "followup_count": 0,
+            "last_followup_at": null,
+            "followup_due": false,
+            "remarks": "",
+            "remarks_by_name": null,
+            "remarks_at": null
+          },
+          {
+            "id": 2,
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
+            "partner_name": "bKash",
+            "to": [
+              "dispute@bkash.com",
+              "bad.box@bkash.com"
+            ],
+            "cc": [ ],
+            "subject": "Settlement pending - bKash - 02 Sep 2026",
+            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
+            "is_edited": false,
+            "template_id": 3,
+            "txn_count": 2,
+            "total_amount": 25500.0,
+            "status": "PENDING",
+            "attempts": 0,
+            "error": null,
+            "sent_at": null,
+            "delivery_issues": [ ],
+            "upload_id": 1,
+            "upload_filename": "sample.xlsx",
+            "mail_type": "inward",
+            "mail_type_label": "Inward Transaction",
             "submitted_by": "maker.user",
             "submitted_by_name": "Maker User",
             "submitted_at": "<datetime>",
@@ -10631,8 +10776,8 @@
         "auth": "maker",
         "body": {
           "ids": [
-            1,
-            2
+            2,
+            1
           ]
         }
       },
@@ -10757,10 +10902,10 @@
         "auth": "admin",
         "body": {
           "ids": [
-            1,
             2,
+            1,
             9999,
-            1
+            2
           ]
         }
       },
@@ -10776,46 +10921,8 @@
           "emails": [
             {
               "id": 1,
-              "case_id": "<clock-month>000011000001",
-              "partner_name": "bKash",
-              "to": [
-                "dispute@bkash.com",
-                "bad.box@bkash.com"
-              ],
-              "cc": [ ],
-              "subject": "Settlement pending - bKash - 02 Sep 2026",
-              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
-              "is_edited": false,
-              "template_id": 3,
-              "txn_count": 2,
-              "total_amount": 25500.0,
-              "status": "FAILED",
-              "attempts": 1,
-              "error": "Failed after 1 attempt(s): Couldn't connect to host, port: 127.0.0.1, 9; timeout 15000",
-              "sent_at": null,
-              "delivery_issues": [ ],
-              "upload_id": 1,
-              "upload_filename": "sample.xlsx",
-              "mail_type": "inward",
-              "mail_type_label": "Inward Transaction",
-              "submitted_by": "maker.user",
-              "submitted_by_name": "Maker User",
-              "submitted_at": "<datetime>",
-              "sent_by": "admin",
-              "sent_by_name": "Administrator",
-              "reply_status": "not_received",
-              "reply_status_by_name": null,
-              "reply_status_at": null,
-              "followup_count": 0,
-              "last_followup_at": null,
-              "followup_due": false,
-              "remarks": "",
-              "remarks_by_name": null,
-              "remarks_at": null
-            },
-            {
-              "id": 2,
-              "case_id": "<clock-month>000022000001",
+              "case_id": "<clock-month>00220012000001",
+              "partner_code": "22001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -10851,6 +10958,46 @@
               "remarks": "",
               "remarks_by_name": null,
               "remarks_at": null
+            },
+            {
+              "id": 2,
+              "case_id": "<clock-month>00220021000001",
+              "partner_code": "22002",
+              "partner_name": "bKash",
+              "to": [
+                "dispute@bkash.com",
+                "bad.box@bkash.com"
+              ],
+              "cc": [ ],
+              "subject": "Settlement pending - bKash - 02 Sep 2026",
+              "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
+              "is_edited": false,
+              "template_id": 3,
+              "txn_count": 2,
+              "total_amount": 25500.0,
+              "status": "FAILED",
+              "attempts": 1,
+              "error": "Failed after 1 attempt(s): Couldn't connect to host, port: 127.0.0.1, 9; timeout 15000",
+              "sent_at": null,
+              "delivery_issues": [ ],
+              "upload_id": 1,
+              "upload_filename": "sample.xlsx",
+              "mail_type": "inward",
+              "mail_type_label": "Inward Transaction",
+              "submitted_by": "maker.user",
+              "submitted_by_name": "Maker User",
+              "submitted_at": "<datetime>",
+              "sent_by": "admin",
+              "sent_by_name": "Administrator",
+              "reply_status": "not_received",
+              "reply_status_by_name": null,
+              "reply_status_at": null,
+              "followup_count": 0,
+              "last_followup_at": null,
+              "followup_due": false,
+              "remarks": "",
+              "remarks_by_name": null,
+              "remarks_at": null
             }
           ]
         }
@@ -10871,46 +11018,8 @@
         "body": [
           {
             "id": 1,
-            "case_id": "<clock-month>000011000001",
-            "partner_name": "bKash",
-            "to": [
-              "dispute@bkash.com",
-              "bad.box@bkash.com"
-            ],
-            "cc": [ ],
-            "subject": "Settlement pending - bKash - 02 Sep 2026",
-            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
-            "is_edited": false,
-            "template_id": 3,
-            "txn_count": 2,
-            "total_amount": 25500.0,
-            "status": "FAILED",
-            "attempts": 1,
-            "error": "Failed after 1 attempt(s): Couldn't connect to host, port: 127.0.0.1, 9; timeout 15000",
-            "sent_at": null,
-            "delivery_issues": [ ],
-            "upload_id": 1,
-            "upload_filename": "sample.xlsx",
-            "mail_type": "inward",
-            "mail_type_label": "Inward Transaction",
-            "submitted_by": "maker.user",
-            "submitted_by_name": "Maker User",
-            "submitted_at": "<datetime>",
-            "sent_by": "admin",
-            "sent_by_name": "Administrator",
-            "reply_status": "not_received",
-            "reply_status_by_name": null,
-            "reply_status_at": null,
-            "followup_count": 0,
-            "last_followup_at": null,
-            "followup_due": false,
-            "remarks": "",
-            "remarks_by_name": null,
-            "remarks_at": null
-          },
-          {
-            "id": 2,
-            "case_id": "<clock-month>000022000001",
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -10932,6 +11041,46 @@
             "upload_filename": "sample.xlsx",
             "mail_type": "outward",
             "mail_type_label": "Outward Transaction",
+            "submitted_by": "maker.user",
+            "submitted_by_name": "Maker User",
+            "submitted_at": "<datetime>",
+            "sent_by": "admin",
+            "sent_by_name": "Administrator",
+            "reply_status": "not_received",
+            "reply_status_by_name": null,
+            "reply_status_at": null,
+            "followup_count": 0,
+            "last_followup_at": null,
+            "followup_due": false,
+            "remarks": "",
+            "remarks_by_name": null,
+            "remarks_at": null
+          },
+          {
+            "id": 2,
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
+            "partner_name": "bKash",
+            "to": [
+              "dispute@bkash.com",
+              "bad.box@bkash.com"
+            ],
+            "cc": [ ],
+            "subject": "Settlement pending - bKash - 02 Sep 2026",
+            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p><p style=\"margin:0 0 12px\">2 transaction(s), BDT 25,500.00: 624515085655, 624516087002.</p>\n</div>\n",
+            "is_edited": false,
+            "template_id": 3,
+            "txn_count": 2,
+            "total_amount": 25500.0,
+            "status": "FAILED",
+            "attempts": 1,
+            "error": "Failed after 1 attempt(s): Couldn't connect to host, port: 127.0.0.1, 9; timeout 15000",
+            "sent_at": null,
+            "delivery_issues": [ ],
+            "upload_id": 1,
+            "upload_filename": "sample.xlsx",
+            "mail_type": "inward",
+            "mail_type_label": "Inward Transaction",
             "submitted_by": "maker.user",
             "submitted_by_name": "Maker User",
             "submitted_at": "<datetime>",
@@ -10979,7 +11128,7 @@
       "name": "emails: history of a failed email",
       "request": {
         "method": "GET",
-        "path": "/api/emails/1/events",
+        "path": "/api/emails/2/events",
         "auth": "maker"
       },
       "response": {
@@ -10989,7 +11138,7 @@
         },
         "body": [
           {
-            "id": 1,
+            "id": 2,
             "kind": "submitted",
             "reply_status": null,
             "note": null,
@@ -11047,7 +11196,7 @@
       "name": "sent: reply status of an email that wasn't sent 404",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/reply-status",
+        "path": "/api/emails/2/reply-status",
         "auth": "admin",
         "body": {
           "status": "received"
@@ -11067,7 +11216,7 @@
       "name": "sent: follow-up draft of an email that wasn't sent 404",
       "request": {
         "method": "GET",
-        "path": "/api/emails/1/followup-draft",
+        "path": "/api/emails/2/followup-draft",
         "auth": "maker"
       },
       "response": {
@@ -12242,7 +12391,7 @@
         "auth": "admin",
         "body": {
           "ids": [
-            1
+            2
           ]
         }
       },
@@ -12257,8 +12406,9 @@
           "skipped": [ ],
           "emails": [
             {
-              "id": 2,
-              "case_id": "<clock-month>000022000001",
+              "id": 1,
+              "case_id": "<clock-month>00220012000001",
+              "partner_code": "22001",
               "partner_name": "Rocket",
               "to": [
                 "recon@rocket.com.bd",
@@ -12307,8 +12457,8 @@
         "auth": "admin",
         "body": {
           "ids": [
-            2,
-            1
+            1,
+            2
           ]
         }
       },
@@ -12335,7 +12485,7 @@
         "auth": "admin",
         "body": {
           "ids": [
-            1
+            2
           ]
         }
       },
@@ -12422,7 +12572,16 @@
         },
         "body": [
           {
+            "id": 5,
+            "org_code": "999",
+            "name": "Upay Test",
+            "is_active": true,
+            "emails": [ ],
+            "pending_request_id": null
+          },
+          {
             "id": 2,
+            "org_code": "22001",
             "name": "Rocket",
             "is_active": true,
             "emails": [
@@ -12444,44 +12603,8 @@
             "pending_request_id": null
           },
           {
-            "id": 4,
-            "name": "SureCash",
-            "is_active": true,
-            "emails": [
-              {
-                "id": 5,
-                "email": "desk@surecash.net",
-                "is_active": false,
-                "problem": null,
-                "problem_at": null
-              }
-            ],
-            "pending_request_id": null
-          },
-          {
-            "id": 3,
-            "name": "TallyPay",
-            "is_active": false,
-            "emails": [
-              {
-                "id": 4,
-                "email": "ops@tallypay.com.bd",
-                "is_active": true,
-                "problem": null,
-                "problem_at": null
-              }
-            ],
-            "pending_request_id": null
-          },
-          {
-            "id": 5,
-            "name": "Upay Test",
-            "is_active": true,
-            "emails": [ ],
-            "pending_request_id": null
-          },
-          {
             "id": 1,
+            "org_code": "22002",
             "name": "bKash",
             "is_active": true,
             "emails": [
@@ -12501,6 +12624,38 @@
               }
             ],
             "pending_request_id": null
+          },
+          {
+            "id": 3,
+            "org_code": "22004",
+            "name": "TallyPay",
+            "is_active": false,
+            "emails": [
+              {
+                "id": 4,
+                "email": "ops@tallypay.com.bd",
+                "is_active": true,
+                "problem": null,
+                "problem_at": null
+              }
+            ],
+            "pending_request_id": null
+          },
+          {
+            "id": 4,
+            "org_code": "22005",
+            "name": "SureCash",
+            "is_active": true,
+            "emails": [
+              {
+                "id": 5,
+                "email": "desk@surecash.net",
+                "is_active": false,
+                "problem": null,
+                "problem_at": null
+              }
+            ],
+            "pending_request_id": null
           }
         ]
       }
@@ -12509,7 +12664,7 @@
       "name": "emails: an admin can't edit a sent email 400",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1",
+        "path": "/api/emails/2",
         "auth": "admin",
         "body": {
           "subject": "x",
@@ -12541,7 +12696,48 @@
         "body": [
           {
             "id": 1,
-            "case_id": "<clock-month>000011000001",
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
+            "partner_name": "Rocket",
+            "to": [
+              "recon@rocket.com.bd",
+              "claims@rocket.com.bd"
+            ],
+            "cc": [ ],
+            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
+            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
+            "is_edited": false,
+            "template_id": 2,
+            "txn_count": 1,
+            "total_amount": 1500.0,
+            "status": "SENT",
+            "attempts": 2,
+            "error": null,
+            "sent_at": "<datetime>",
+            "delivery_issues": [ ],
+            "upload_id": 1,
+            "upload_filename": "sample.xlsx",
+            "mail_type": "outward",
+            "mail_type_label": "Outward Transaction",
+            "submitted_by": "maker.user",
+            "submitted_by_name": "Maker User",
+            "submitted_at": "<datetime>",
+            "sent_by": "admin",
+            "sent_by_name": "Administrator",
+            "reply_status": "not_received",
+            "reply_status_by_name": null,
+            "reply_status_at": null,
+            "followup_count": 0,
+            "last_followup_at": null,
+            "followup_due": false,
+            "remarks": "",
+            "remarks_by_name": null,
+            "remarks_at": null
+          },
+          {
+            "id": 2,
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -12569,45 +12765,6 @@
             "upload_filename": "sample.xlsx",
             "mail_type": "inward",
             "mail_type_label": "Inward Transaction",
-            "submitted_by": "maker.user",
-            "submitted_by_name": "Maker User",
-            "submitted_at": "<datetime>",
-            "sent_by": "admin",
-            "sent_by_name": "Administrator",
-            "reply_status": "not_received",
-            "reply_status_by_name": null,
-            "reply_status_at": null,
-            "followup_count": 0,
-            "last_followup_at": null,
-            "followup_due": false,
-            "remarks": "",
-            "remarks_by_name": null,
-            "remarks_at": null
-          },
-          {
-            "id": 2,
-            "case_id": "<clock-month>000022000001",
-            "partner_name": "Rocket",
-            "to": [
-              "recon@rocket.com.bd",
-              "claims@rocket.com.bd"
-            ],
-            "cc": [ ],
-            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
-            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
-            "is_edited": false,
-            "template_id": 2,
-            "txn_count": 1,
-            "total_amount": 1500.0,
-            "status": "SENT",
-            "attempts": 2,
-            "error": null,
-            "sent_at": "<datetime>",
-            "delivery_issues": [ ],
-            "upload_id": 1,
-            "upload_filename": "sample.xlsx",
-            "mail_type": "outward",
-            "mail_type_label": "Outward Transaction",
             "submitted_by": "maker.user",
             "submitted_by_name": "Maker User",
             "submitted_at": "<datetime>",
@@ -12689,46 +12846,8 @@
         "body": [
           {
             "id": 2,
-            "case_id": "<clock-month>000022000001",
-            "partner_name": "Rocket",
-            "to": [
-              "recon@rocket.com.bd",
-              "claims@rocket.com.bd"
-            ],
-            "cc": [ ],
-            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
-            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
-            "is_edited": false,
-            "template_id": 2,
-            "txn_count": 1,
-            "total_amount": 1500.0,
-            "status": "SENT",
-            "attempts": 2,
-            "error": null,
-            "sent_at": "<datetime>",
-            "delivery_issues": [ ],
-            "upload_id": 1,
-            "upload_filename": "sample.xlsx",
-            "mail_type": "outward",
-            "mail_type_label": "Outward Transaction",
-            "submitted_by": "maker.user",
-            "submitted_by_name": "Maker User",
-            "submitted_at": "<datetime>",
-            "sent_by": "admin",
-            "sent_by_name": "Administrator",
-            "reply_status": "not_received",
-            "reply_status_by_name": null,
-            "reply_status_at": null,
-            "followup_count": 0,
-            "last_followup_at": null,
-            "followup_due": false,
-            "remarks": "",
-            "remarks_by_name": null,
-            "remarks_at": null
-          },
-          {
-            "id": 1,
-            "case_id": "<clock-month>000011000001",
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -12770,6 +12889,46 @@
             "remarks": "",
             "remarks_by_name": null,
             "remarks_at": null
+          },
+          {
+            "id": 1,
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
+            "partner_name": "Rocket",
+            "to": [
+              "recon@rocket.com.bd",
+              "claims@rocket.com.bd"
+            ],
+            "cc": [ ],
+            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
+            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
+            "is_edited": false,
+            "template_id": 2,
+            "txn_count": 1,
+            "total_amount": 1500.0,
+            "status": "SENT",
+            "attempts": 2,
+            "error": null,
+            "sent_at": "<datetime>",
+            "delivery_issues": [ ],
+            "upload_id": 1,
+            "upload_filename": "sample.xlsx",
+            "mail_type": "outward",
+            "mail_type_label": "Outward Transaction",
+            "submitted_by": "maker.user",
+            "submitted_by_name": "Maker User",
+            "submitted_at": "<datetime>",
+            "sent_by": "admin",
+            "sent_by_name": "Administrator",
+            "reply_status": "not_received",
+            "reply_status_by_name": null,
+            "reply_status_at": null,
+            "followup_count": 0,
+            "last_followup_at": null,
+            "followup_due": false,
+            "remarks": "",
+            "remarks_by_name": null,
+            "remarks_at": null
           }
         ]
       }
@@ -12788,8 +12947,9 @@
         },
         "body": [
           {
-            "id": 2,
-            "case_id": "<clock-month>000022000001",
+            "id": 1,
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -12844,46 +13004,8 @@
         "body": [
           {
             "id": 2,
-            "case_id": "<clock-month>000022000001",
-            "partner_name": "Rocket",
-            "to": [
-              "recon@rocket.com.bd",
-              "claims@rocket.com.bd"
-            ],
-            "cc": [ ],
-            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
-            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
-            "is_edited": false,
-            "template_id": 2,
-            "txn_count": 1,
-            "total_amount": 1500.0,
-            "status": "SENT",
-            "attempts": 2,
-            "error": null,
-            "sent_at": "<datetime>",
-            "delivery_issues": [ ],
-            "upload_id": 1,
-            "upload_filename": "sample.xlsx",
-            "mail_type": "outward",
-            "mail_type_label": "Outward Transaction",
-            "submitted_by": "maker.user",
-            "submitted_by_name": "Maker User",
-            "submitted_at": "<datetime>",
-            "sent_by": "admin",
-            "sent_by_name": "Administrator",
-            "reply_status": "not_received",
-            "reply_status_by_name": null,
-            "reply_status_at": null,
-            "followup_count": 0,
-            "last_followup_at": null,
-            "followup_due": false,
-            "remarks": "",
-            "remarks_by_name": null,
-            "remarks_at": null
-          },
-          {
-            "id": 1,
-            "case_id": "<clock-month>000011000001",
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -12925,6 +13047,46 @@
             "remarks": "",
             "remarks_by_name": null,
             "remarks_at": null
+          },
+          {
+            "id": 1,
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
+            "partner_name": "Rocket",
+            "to": [
+              "recon@rocket.com.bd",
+              "claims@rocket.com.bd"
+            ],
+            "cc": [ ],
+            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
+            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
+            "is_edited": false,
+            "template_id": 2,
+            "txn_count": 1,
+            "total_amount": 1500.0,
+            "status": "SENT",
+            "attempts": 2,
+            "error": null,
+            "sent_at": "<datetime>",
+            "delivery_issues": [ ],
+            "upload_id": 1,
+            "upload_filename": "sample.xlsx",
+            "mail_type": "outward",
+            "mail_type_label": "Outward Transaction",
+            "submitted_by": "maker.user",
+            "submitted_by_name": "Maker User",
+            "submitted_at": "<datetime>",
+            "sent_by": "admin",
+            "sent_by_name": "Administrator",
+            "reply_status": "not_received",
+            "reply_status_by_name": null,
+            "reply_status_at": null,
+            "followup_count": 0,
+            "last_followup_at": null,
+            "followup_due": false,
+            "remarks": "",
+            "remarks_by_name": null,
+            "remarks_at": null
           }
         ]
       }
@@ -12943,8 +13105,9 @@
         },
         "body": [
           {
-            "id": 1,
-            "case_id": "<clock-month>000011000001",
+            "id": 2,
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -13005,46 +13168,8 @@
         "body": [
           {
             "id": 2,
-            "case_id": "<clock-month>000022000001",
-            "partner_name": "Rocket",
-            "to": [
-              "recon@rocket.com.bd",
-              "claims@rocket.com.bd"
-            ],
-            "cc": [ ],
-            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
-            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
-            "is_edited": false,
-            "template_id": 2,
-            "txn_count": 1,
-            "total_amount": 1500.0,
-            "status": "SENT",
-            "attempts": 2,
-            "error": null,
-            "sent_at": "<datetime>",
-            "delivery_issues": [ ],
-            "upload_id": 1,
-            "upload_filename": "sample.xlsx",
-            "mail_type": "outward",
-            "mail_type_label": "Outward Transaction",
-            "submitted_by": "maker.user",
-            "submitted_by_name": "Maker User",
-            "submitted_at": "<datetime>",
-            "sent_by": "admin",
-            "sent_by_name": "Administrator",
-            "reply_status": "not_received",
-            "reply_status_by_name": null,
-            "reply_status_at": null,
-            "followup_count": 0,
-            "last_followup_at": null,
-            "followup_due": false,
-            "remarks": "",
-            "remarks_by_name": null,
-            "remarks_at": null
-          },
-          {
-            "id": 1,
-            "case_id": "<clock-month>000011000001",
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -13072,6 +13197,46 @@
             "upload_filename": "sample.xlsx",
             "mail_type": "inward",
             "mail_type_label": "Inward Transaction",
+            "submitted_by": "maker.user",
+            "submitted_by_name": "Maker User",
+            "submitted_at": "<datetime>",
+            "sent_by": "admin",
+            "sent_by_name": "Administrator",
+            "reply_status": "not_received",
+            "reply_status_by_name": null,
+            "reply_status_at": null,
+            "followup_count": 0,
+            "last_followup_at": null,
+            "followup_due": false,
+            "remarks": "",
+            "remarks_by_name": null,
+            "remarks_at": null
+          },
+          {
+            "id": 1,
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
+            "partner_name": "Rocket",
+            "to": [
+              "recon@rocket.com.bd",
+              "claims@rocket.com.bd"
+            ],
+            "cc": [ ],
+            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
+            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
+            "is_edited": false,
+            "template_id": 2,
+            "txn_count": 1,
+            "total_amount": 1500.0,
+            "status": "SENT",
+            "attempts": 2,
+            "error": null,
+            "sent_at": "<datetime>",
+            "delivery_issues": [ ],
+            "upload_id": 1,
+            "upload_filename": "sample.xlsx",
+            "mail_type": "outward",
+            "mail_type_label": "Outward Transaction",
             "submitted_by": "maker.user",
             "submitted_by_name": "Maker User",
             "submitted_at": "<datetime>",
@@ -13336,7 +13501,7 @@
       "name": "sent: history",
       "request": {
         "method": "GET",
-        "path": "/api/emails/1/events",
+        "path": "/api/emails/2/events",
         "auth": "maker"
       },
       "response": {
@@ -13346,7 +13511,7 @@
         },
         "body": [
           {
-            "id": 1,
+            "id": 2,
             "kind": "submitted",
             "reply_status": null,
             "note": null,
@@ -13406,7 +13571,7 @@
       "name": "sent: follow-up draft (the refused address is left out)",
       "request": {
         "method": "GET",
-        "path": "/api/emails/1/followup-draft",
+        "path": "/api/emails/2/followup-draft",
         "auth": "maker"
       },
       "response": {
@@ -13433,7 +13598,7 @@
       "name": "sent: follow-up draft from the reminder template",
       "request": {
         "method": "GET",
-        "path": "/api/emails/2/followup-draft",
+        "path": "/api/emails/1/followup-draft",
         "auth": "maker"
       },
       "response": {
@@ -13459,7 +13624,7 @@
       "name": "sent: send a follow-up",
       "request": {
         "method": "POST",
-        "path": "/api/emails/1/followups",
+        "path": "/api/emails/2/followups",
         "auth": "maker",
         "body": {
           "to": [
@@ -13481,8 +13646,9 @@
         },
         "body": {
           "email": {
-            "id": 1,
-            "case_id": "<clock-month>000011000001",
+            "id": 2,
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -13533,7 +13699,7 @@
       "name": "sent: a second follow-up right away 409",
       "request": {
         "method": "POST",
-        "path": "/api/emails/1/followups",
+        "path": "/api/emails/2/followups",
         "auth": "maker",
         "body": {
           "to": [
@@ -13562,7 +13728,7 @@
       "name": "sent: follow-up with invalid fields 422",
       "request": {
         "method": "POST",
-        "path": "/api/emails/1/followups",
+        "path": "/api/emails/2/followups",
         "auth": "maker",
         "body": {
           "to": [
@@ -13623,7 +13789,7 @@
       "name": "sent: follow-up without recipients 400",
       "request": {
         "method": "POST",
-        "path": "/api/emails/1/followups",
+        "path": "/api/emails/2/followups",
         "auth": "maker",
         "body": {
           "to": [ ],
@@ -13645,7 +13811,7 @@
       "name": "sent: follow-up with an empty body 400",
       "request": {
         "method": "POST",
-        "path": "/api/emails/1/followups",
+        "path": "/api/emails/2/followups",
         "auth": "maker",
         "body": {
           "to": [
@@ -13693,7 +13859,7 @@
       "name": "sent: follow-up refused by the mail server 502",
       "request": {
         "method": "POST",
-        "path": "/api/emails/2/followups",
+        "path": "/api/emails/1/followups",
         "auth": "maker",
         "body": {
           "to": [
@@ -13717,7 +13883,7 @@
       "name": "sent: follow-up after the refused one",
       "request": {
         "method": "POST",
-        "path": "/api/emails/2/followups",
+        "path": "/api/emails/1/followups",
         "auth": "admin",
         "body": {
           "to": [
@@ -13736,8 +13902,9 @@
         },
         "body": {
           "email": {
-            "id": 2,
-            "case_id": "<clock-month>000022000001",
+            "id": 1,
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -13826,7 +13993,7 @@
       "name": "sent: mark replied",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/reply-status",
+        "path": "/api/emails/2/reply-status",
         "auth": "admin",
         "body": {
           "status": "received",
@@ -13839,8 +14006,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 1,
-          "case_id": "<clock-month>000011000001",
+          "id": 2,
+          "case_id": "<clock-month>00220021000001",
+          "partner_code": "22002",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -13889,7 +14057,7 @@
       "name": "sent: same status again (no change)",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/reply-status",
+        "path": "/api/emails/2/reply-status",
         "auth": "admin",
         "body": {
           "status": "received"
@@ -13901,8 +14069,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 1,
-          "case_id": "<clock-month>000011000001",
+          "id": 2,
+          "case_id": "<clock-month>00220021000001",
+          "partner_code": "22002",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -13951,7 +14120,7 @@
       "name": "sent: users can't set the reply status 403",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/reply-status",
+        "path": "/api/emails/2/reply-status",
         "auth": "maker",
         "body": {
           "status": "received"
@@ -13971,7 +14140,7 @@
       "name": "sent: invalid reply status 422",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/reply-status",
+        "path": "/api/emails/2/reply-status",
         "auth": "admin",
         "body": {
           "status": "maybe",
@@ -14011,7 +14180,7 @@
       "name": "sent: follow-up draft after a reply",
       "request": {
         "method": "GET",
-        "path": "/api/emails/1/followup-draft",
+        "path": "/api/emails/2/followup-draft",
         "auth": "maker"
       },
       "response": {
@@ -14038,7 +14207,7 @@
       "name": "sent: add a note",
       "request": {
         "method": "POST",
-        "path": "/api/emails/1/notes",
+        "path": "/api/emails/2/notes",
         "auth": "admin",
         "body": {
           "note": "Called the partner."
@@ -14058,7 +14227,7 @@
       "name": "sent: empty note 422",
       "request": {
         "method": "POST",
-        "path": "/api/emails/1/notes",
+        "path": "/api/emails/2/notes",
         "auth": "admin",
         "body": {
           "note": "   "
@@ -14091,7 +14260,7 @@
       "name": "sent: users can't add notes 403",
       "request": {
         "method": "POST",
-        "path": "/api/emails/1/notes",
+        "path": "/api/emails/2/notes",
         "auth": "maker",
         "body": {
           "note": "x"
@@ -14131,7 +14300,7 @@
       "name": "sent: set remarks",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/remarks",
+        "path": "/api/emails/2/remarks",
         "auth": "admin",
         "body": {
           "remarks": "Waiting for settlement."
@@ -14143,8 +14312,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 1,
-          "case_id": "<clock-month>000011000001",
+          "id": 2,
+          "case_id": "<clock-month>00220021000001",
+          "partner_code": "22002",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -14193,7 +14363,7 @@
       "name": "sent: clear remarks",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/remarks",
+        "path": "/api/emails/2/remarks",
         "auth": "admin",
         "body": {
           "remarks": ""
@@ -14205,8 +14375,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 1,
-          "case_id": "<clock-month>000011000001",
+          "id": 2,
+          "case_id": "<clock-month>00220021000001",
+          "partner_code": "22002",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -14255,7 +14426,7 @@
       "name": "sent: remarks too long 422",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/remarks",
+        "path": "/api/emails/2/remarks",
         "auth": "admin",
         "body": {
           "remarks": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -14288,7 +14459,7 @@
       "name": "sent: users can't set remarks 403",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/remarks",
+        "path": "/api/emails/2/remarks",
         "auth": "maker",
         "body": {
           "remarks": "x"
@@ -14308,7 +14479,7 @@
       "name": "sent: remarks for Rocket",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/2/remarks",
+        "path": "/api/emails/1/remarks",
         "auth": "admin",
         "body": {
           "remarks": "Claim checked by Ops"
@@ -14320,8 +14491,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 2,
-          "case_id": "<clock-month>000022000001",
+          "id": 1,
+          "case_id": "<clock-month>00220012000001",
+          "partner_code": "22001",
           "partner_name": "Rocket",
           "to": [
             "recon@rocket.com.bd",
@@ -14364,7 +14536,7 @@
       "name": "sent: reconcile",
       "request": {
         "method": "PUT",
-        "path": "/api/emails/1/reply-status",
+        "path": "/api/emails/2/reply-status",
         "auth": "admin",
         "body": {
           "status": "reconciled"
@@ -14376,8 +14548,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "id": 1,
-          "case_id": "<clock-month>000011000001",
+          "id": 2,
+          "case_id": "<clock-month>00220021000001",
+          "partner_code": "22002",
           "partner_name": "bKash",
           "to": [
             "dispute@bkash.com",
@@ -14426,7 +14599,7 @@
       "name": "sent: follow-up draft of a reconciled email 409",
       "request": {
         "method": "GET",
-        "path": "/api/emails/1/followup-draft",
+        "path": "/api/emails/2/followup-draft",
         "auth": "maker"
       },
       "response": {
@@ -14443,7 +14616,7 @@
       "name": "sent: follow-up of a reconciled email 409",
       "request": {
         "method": "POST",
-        "path": "/api/emails/1/followups",
+        "path": "/api/emails/2/followups",
         "auth": "maker",
         "body": {
           "to": [
@@ -14472,7 +14645,7 @@
       "name": "sent: history after the follow-ups",
       "request": {
         "method": "GET",
-        "path": "/api/emails/1/events",
+        "path": "/api/emails/2/events",
         "auth": "maker"
       },
       "response": {
@@ -14482,7 +14655,7 @@
         },
         "body": [
           {
-            "id": 1,
+            "id": 2,
             "kind": "submitted",
             "reply_status": null,
             "note": null,
@@ -14642,7 +14815,7 @@
       "name": "sent: history of Rocket",
       "request": {
         "method": "GET",
-        "path": "/api/emails/2/events",
+        "path": "/api/emails/1/events",
         "auth": "maker"
       },
       "response": {
@@ -14652,7 +14825,7 @@
         },
         "body": [
           {
-            "id": 2,
+            "id": 1,
             "kind": "submitted",
             "reply_status": null,
             "note": null,
@@ -14765,7 +14938,7 @@
       "name": "sent: conversation",
       "request": {
         "method": "GET",
-        "path": "/api/emails/1/conversation",
+        "path": "/api/emails/2/conversation",
         "auth": "maker"
       },
       "response": {
@@ -14774,11 +14947,11 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "email_id": 1,
+          "email_id": 2,
           "partner_name": "bKash",
           "nodes": [
             {
-              "id": "email-1",
+              "id": "email-2",
               "type": "email",
               "parent": null,
               "at": "<datetime>",
@@ -14793,7 +14966,7 @@
             {
               "id": "followup-7",
               "type": "followup",
-              "parent": "email-1",
+              "parent": "email-2",
               "at": "<datetime>",
               "subject": "Re: Settlement pending - bKash - 02 Sep 2026",
               "by_name": "Maker User",
@@ -14809,7 +14982,7 @@
       "name": "sent: conversation of Rocket",
       "request": {
         "method": "GET",
-        "path": "/api/emails/2/conversation",
+        "path": "/api/emails/1/conversation",
         "auth": "maker"
       },
       "response": {
@@ -14818,11 +14991,11 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "email_id": 2,
+          "email_id": 1,
           "partner_name": "Rocket",
           "nodes": [
             {
-              "id": "email-2",
+              "id": "email-1",
               "type": "email",
               "parent": null,
               "at": "<datetime>",
@@ -14837,7 +15010,7 @@
             {
               "id": "followup-9",
               "type": "followup",
-              "parent": "email-2",
+              "parent": "email-1",
               "at": "<datetime>",
               "subject": "Reminder 1: Rocket - Outward Transaction",
               "by_name": "Administrator",
@@ -14882,7 +15055,48 @@
         "body": [
           {
             "id": 1,
-            "case_id": "<clock-month>000011000001",
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
+            "partner_name": "Rocket",
+            "to": [
+              "recon@rocket.com.bd",
+              "claims@rocket.com.bd"
+            ],
+            "cc": [ ],
+            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
+            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
+            "is_edited": false,
+            "template_id": 2,
+            "txn_count": 1,
+            "total_amount": 1500.0,
+            "status": "SENT",
+            "attempts": 2,
+            "error": null,
+            "sent_at": "<datetime>",
+            "delivery_issues": [ ],
+            "upload_id": 1,
+            "upload_filename": "sample.xlsx",
+            "mail_type": "outward",
+            "mail_type_label": "Outward Transaction",
+            "submitted_by": "maker.user",
+            "submitted_by_name": "Maker User",
+            "submitted_at": "<datetime>",
+            "sent_by": "admin",
+            "sent_by_name": "Administrator",
+            "reply_status": "not_received",
+            "reply_status_by_name": null,
+            "reply_status_at": null,
+            "followup_count": 1,
+            "last_followup_at": "<datetime>",
+            "followup_due": false,
+            "remarks": "Claim checked by Ops",
+            "remarks_by_name": "Administrator",
+            "remarks_at": "<datetime>"
+          },
+          {
+            "id": 2,
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -14924,45 +15138,6 @@
             "remarks": "",
             "remarks_by_name": "Administrator",
             "remarks_at": "<datetime>"
-          },
-          {
-            "id": 2,
-            "case_id": "<clock-month>000022000001",
-            "partner_name": "Rocket",
-            "to": [
-              "recon@rocket.com.bd",
-              "claims@rocket.com.bd"
-            ],
-            "cc": [ ],
-            "subject": "NPSB Outward Transactions - Claim Confirmation Required - Rocket - Dated 02 Sep 2026",
-            "body_html": "<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45\"><p style=\"margin:0 0 12px\">Dear Concern,</p>\n  <p style=\"margin:0 0 12px\">Assalamualaikum.</p>\n  <p style=\"margin:0 0 12px\">Please find attached a list of transactions. We would appreciate your review and feedback on these\n     transactions. Kindly confirm whether there are any claims at your end.<br/>\n     In the absence of any claim or observation, we will proceed with the necessary action from our end\n     accordingly.</p>\n  <p style=\"margin:0 0 12px\"><b>Kindly note that we are expecting your feedback within 5 working days. If we do not receive any feedback\n     within this timeframe, we will consider that there is no claim from your end regarding these\n     transactions.</b></p>\n  <p style=\"margin:0 0 12px\">Your prompt feedback will help us complete the reconciliation process smoothly.</p>\n  <p style=\"margin:0 0 12px\">Thank you for your continued cooperation and support.</p>\n  <p style=\"margin:0 0 12px\">Regards<br/>Reconciliation<br/>Nagad Limited</p>\n</div>\n",
-            "is_edited": false,
-            "template_id": 2,
-            "txn_count": 1,
-            "total_amount": 1500.0,
-            "status": "SENT",
-            "attempts": 2,
-            "error": null,
-            "sent_at": "<datetime>",
-            "delivery_issues": [ ],
-            "upload_id": 1,
-            "upload_filename": "sample.xlsx",
-            "mail_type": "outward",
-            "mail_type_label": "Outward Transaction",
-            "submitted_by": "maker.user",
-            "submitted_by_name": "Maker User",
-            "submitted_at": "<datetime>",
-            "sent_by": "admin",
-            "sent_by_name": "Administrator",
-            "reply_status": "not_received",
-            "reply_status_by_name": null,
-            "reply_status_at": null,
-            "followup_count": 1,
-            "last_followup_at": "<datetime>",
-            "followup_due": false,
-            "remarks": "Claim checked by Ops",
-            "remarks_by_name": "Administrator",
-            "remarks_at": "<datetime>"
           }
         ]
       }
@@ -14981,8 +15156,9 @@
         },
         "body": [
           {
-            "id": 2,
-            "case_id": "<clock-month>000022000001",
+            "id": 1,
+            "case_id": "<clock-month>00220012000001",
+            "partner_code": "22001",
             "partner_name": "Rocket",
             "to": [
               "recon@rocket.com.bd",
@@ -15036,8 +15212,9 @@
         },
         "body": [
           {
-            "id": 1,
-            "case_id": "<clock-month>000011000001",
+            "id": 2,
+            "case_id": "<clock-month>00220021000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -15638,9 +15815,9 @@
         },
         "body": {
           "errors": [
-            "SureCash – Inward Transaction: no active email address configured. No email prepared.",
+            "Upay (code 22003) – Outward Transaction: no partner with the code 22003 in Partner Configuration. No email prepared.",
             "TallyPay – Inward Transaction: partner is inactive. No email prepared.",
-            "Upay – Outward Transaction: no partner with this name in Partner Configuration. No email prepared."
+            "SureCash – Inward Transaction: no active email address configured. No email prepared."
           ],
           "notices": [
             "bKash – Outward Transaction: left out bad.box@bkash.com (Refused: 550 5.1.1 <bad.box@bkash.com>: Recipient address rejected: User unknown)."
@@ -15648,7 +15825,8 @@
           "emails": [
             {
               "id": 3,
-              "case_id": "<clock-month>000012000001",
+              "case_id": "<clock-month>00220022000001",
+              "partner_code": "22002",
               "partner_name": "bKash",
               "to": [
                 "dispute@bkash.com"
@@ -15723,6 +15901,7 @@
           },
           "partner": {
             "id": 1,
+            "org_code": "22002",
             "name": "bKash",
             "is_active": true,
             "emails": [
@@ -15760,7 +15939,8 @@
         "body": [
           {
             "id": 3,
-            "case_id": "<clock-month>000012000001",
+            "case_id": "<clock-month>00220022000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -15819,7 +15999,8 @@
           "emails": [
             {
               "id": 3,
-              "case_id": "<clock-month>000012000001",
+              "case_id": "<clock-month>00220022000001",
+              "partner_code": "22002",
               "partner_name": "bKash",
               "to": [
                 "dispute@bkash.com",
@@ -15877,7 +16058,8 @@
         "body": [
           {
             "id": 3,
-            "case_id": "<clock-month>000012000001",
+            "case_id": "<clock-month>00220022000001",
+            "partner_code": "22002",
             "partner_name": "bKash",
             "to": [
               "dispute@bkash.com",
@@ -18407,7 +18589,7 @@
         "path": "/api/replies/9999/link",
         "auth": "admin",
         "body": {
-          "email_id": 1
+          "email_id": 2
         }
       },
       "response": {
@@ -18455,7 +18637,7 @@
         "path": "/api/replies/9999/link",
         "auth": "maker",
         "body": {
-          "email_id": 1
+          "email_id": 2
         }
       },
       "response": {
@@ -19355,7 +19537,7 @@
             "entity_id": 1,
             "action": "update",
             "action_label": "Change",
-            "summary": "bKash",
+            "summary": "22002 · bKash",
             "status": "applied",
             "before": {
               "emails": [
@@ -19369,7 +19551,8 @@
                 }
               ],
               "is_active": true,
-              "name": "bKash"
+              "name": "bKash",
+              "org_code": "22002"
             },
             "after": {
               "emails": [
@@ -19385,7 +19568,8 @@
                 }
               ],
               "is_active": true,
-              "name": "bKash"
+              "name": "bKash",
+              "org_code": null
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker Person",
@@ -19819,7 +20003,7 @@
             "entity_id": 2,
             "action": "update",
             "action_label": "Change",
-            "summary": "Rocket",
+            "summary": "22001 · Rocket",
             "status": "applied",
             "before": {
               "emails": [
@@ -19829,7 +20013,8 @@
                 }
               ],
               "is_active": true,
-              "name": "Rocket"
+              "name": "Rocket",
+              "org_code": "22001"
             },
             "after": {
               "emails": [
@@ -19845,7 +20030,8 @@
                 }
               ],
               "is_active": true,
-              "name": "Rocket"
+              "name": "Rocket",
+              "org_code": null
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker Person",
@@ -19863,13 +20049,14 @@
             "entity_id": 5,
             "action": "create",
             "action_label": "New",
-            "summary": "Upay Test",
+            "summary": "999 · Upay Test",
             "status": "applied",
             "before": null,
             "after": {
               "emails": [ ],
               "is_active": true,
-              "name": "Upay Test"
+              "name": "Upay Test",
+              "org_code": "999"
             },
             "requested_by": "admin",
             "requested_by_name": "Administrator",
@@ -19887,7 +20074,7 @@
             "entity_id": 4,
             "action": "create",
             "action_label": "New",
-            "summary": "SureCash",
+            "summary": "22005 · SureCash",
             "status": "applied",
             "before": null,
             "after": {
@@ -19899,7 +20086,8 @@
                 }
               ],
               "is_active": true,
-              "name": "SureCash"
+              "name": "SureCash",
+              "org_code": "22005"
             },
             "requested_by": "checker.user",
             "requested_by_name": "Checker User",
@@ -19917,7 +20105,7 @@
             "entity_id": 3,
             "action": "create",
             "action_label": "New",
-            "summary": "TallyPay",
+            "summary": "22004 · TallyPay",
             "status": "applied",
             "before": null,
             "after": {
@@ -19929,7 +20117,8 @@
                 }
               ],
               "is_active": false,
-              "name": "TallyPay"
+              "name": "TallyPay",
+              "org_code": "22004"
             },
             "requested_by": "checker.user",
             "requested_by_name": "Checker User",
@@ -19947,7 +20136,7 @@
             "entity_id": 2,
             "action": "create",
             "action_label": "New",
-            "summary": "Rocket",
+            "summary": "22001 · Rocket",
             "status": "applied",
             "before": null,
             "after": {
@@ -19959,7 +20148,8 @@
                 }
               ],
               "is_active": true,
-              "name": "  Rocket "
+              "name": "  Rocket ",
+              "org_code": "022001"
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker Person",
@@ -19977,7 +20167,7 @@
             "entity_id": 1,
             "action": "create",
             "action_label": "New",
-            "summary": "bKash",
+            "summary": "22002 · bKash",
             "status": "applied",
             "before": null,
             "after": {
@@ -19994,7 +20184,8 @@
                 }
               ],
               "is_active": true,
-              "name": "bKash"
+              "name": "bKash",
+              "org_code": "22002"
             },
             "requested_by": "maker.user",
             "requested_by_name": "Maker Person",
@@ -20584,7 +20775,16 @@
         },
         "body": [
           {
+            "id": 5,
+            "org_code": "999",
+            "name": "Upay Test",
+            "is_active": true,
+            "emails": [ ],
+            "pending_request_id": null
+          },
+          {
             "id": 2,
+            "org_code": "22001",
             "name": "Rocket",
             "is_active": true,
             "emails": [
@@ -20606,44 +20806,8 @@
             "pending_request_id": null
           },
           {
-            "id": 4,
-            "name": "SureCash",
-            "is_active": true,
-            "emails": [
-              {
-                "id": 5,
-                "email": "desk@surecash.net",
-                "is_active": false,
-                "problem": null,
-                "problem_at": null
-              }
-            ],
-            "pending_request_id": null
-          },
-          {
-            "id": 3,
-            "name": "TallyPay",
-            "is_active": false,
-            "emails": [
-              {
-                "id": 4,
-                "email": "ops@tallypay.com.bd",
-                "is_active": true,
-                "problem": null,
-                "problem_at": null
-              }
-            ],
-            "pending_request_id": null
-          },
-          {
-            "id": 5,
-            "name": "Upay Test",
-            "is_active": true,
-            "emails": [ ],
-            "pending_request_id": null
-          },
-          {
             "id": 1,
+            "org_code": "22002",
             "name": "bKash",
             "is_active": true,
             "emails": [
@@ -20658,6 +20822,38 @@
                 "id": 9,
                 "email": "bad.box@bkash.com",
                 "is_active": true,
+                "problem": null,
+                "problem_at": null
+              }
+            ],
+            "pending_request_id": null
+          },
+          {
+            "id": 3,
+            "org_code": "22004",
+            "name": "TallyPay",
+            "is_active": false,
+            "emails": [
+              {
+                "id": 4,
+                "email": "ops@tallypay.com.bd",
+                "is_active": true,
+                "problem": null,
+                "problem_at": null
+              }
+            ],
+            "pending_request_id": null
+          },
+          {
+            "id": 4,
+            "org_code": "22005",
+            "name": "SureCash",
+            "is_active": true,
+            "emails": [
+              {
+                "id": 5,
+                "email": "desk@surecash.net",
+                "is_active": false,
                 "problem": null,
                 "problem_at": null
               }
@@ -20730,7 +20926,7 @@
           "placeholders": [
             {
               "name": "partner_name",
-              "description": "Partner name (KEY_ORG_NM)"
+              "description": "Partner name (as in Partner Configuration)"
             },
             {
               "name": "date",

@@ -57,7 +57,7 @@ public class ExportService {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map<String, Object> e : views.dispatchesToDicts(queries.pendingQuery())) {
             rows.add(Py.map(
-                    "Email #", e.get("id"), "Case ID", or(e.get("case_id")), "Partner", e.get("partner_name"), "Mail type", e.get("mail_type_label"),
+                    "Email #", e.get("id"), "Case ID", or(e.get("case_id")), "Partner code", or(e.get("partner_code")), "Partner", e.get("partner_name"), "Mail type", e.get("mail_type_label"),
                     "To", String.join(", ", strings(e.get("to"))), "CC", String.join(", ", strings(e.get("cc"))),
                     "Subject", e.get("subject"), "File", e.get("upload_filename"), "Transactions", e.get("txn_count"),
                     "Amount (BDT)", e.get("total_amount"), "Status", e.get("status"), "Error", or(e.get("error")),
@@ -82,7 +82,7 @@ public class ExportService {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map<String, Object> e : views.dispatchesToDicts(emails)) {
             rows.add(Py.map(
-                    "Email #", e.get("id"), "Case ID", or(e.get("case_id")), "Partner", e.get("partner_name"), "Mail type", e.get("mail_type_label"),
+                    "Email #", e.get("id"), "Case ID", or(e.get("case_id")), "Partner code", or(e.get("partner_code")), "Partner", e.get("partner_name"), "Mail type", e.get("mail_type_label"),
                     "To", String.join(", ", strings(e.get("to"))),
                     "Subject", e.get("subject"), "File", e.get("upload_filename"), "Transactions", e.get("txn_count"),
                     "Amount (BDT)", e.get("total_amount"), "Sent at", or(e.get("sent_at")), "Sent by", or(e.get("sent_by_name")),

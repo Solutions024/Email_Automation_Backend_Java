@@ -138,7 +138,9 @@ public class GlobalExceptionHandler {
         String other = path.endsWith("/") ? path.substring(0, path.length() - 1) : path + "/";
         if (!other.isEmpty() && !path.equals("/") && routeExists(other)) {
             String query = request.getQueryString();
-            return ResponseEntity.status(307).header(HttpHeaders.LOCATION, other + (query == null ? "" : "?" + query)).build();
+            // the Location keeps the context path, so the browser stays under it (SERVER_CONTEXT_PATH)
+            return ResponseEntity.status(307).header(HttpHeaders.LOCATION,
+                    request.getContextPath() + other + (query == null ? "" : "?" + query)).build();
         }
         request.setAttribute(PROBLEM_ATTRIBUTE, "Not Found");
         return ResponseEntity.status(404).contentType(MediaType.APPLICATION_JSON).body(Map.of("detail", "Not Found"));

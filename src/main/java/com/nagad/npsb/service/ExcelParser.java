@@ -50,7 +50,8 @@ public final class ExcelParser {
         }
     }
     /** These must have a value in every row; the other columns must exist but may be empty */
-    private static final List<String> MUST_HAVE_VALUE = List.of("npsb_txn_rrn", "txn_amount", "key_org_nm", "txn_direction");
+    private static final List<String> MUST_HAVE_VALUE = List.of("npsb_txn_rrn", "txn_amount", "key_org_nm", "npsb_org_code",
+            "txn_direction");  // NPSB_ORG_CODE: the partner a row belongs to (OrgCodes)
     /** Numbers that keep their leading zeros (Excel drops them when a cell is stored as a number) */
     private static final Map<String, Integer> ZERO_PADDED = Map.of("org_txn_stan", 6, "npsb_org_code", 6);
 
@@ -365,6 +366,12 @@ public final class ExcelParser {
             String direction = values.get("txn_direction");
             String mailType = direction.isEmpty() ? null : EmailService.parseDirection(direction);
             if (!direction.isEmpty() && mailType == null) errors.add("TXN_DIRECTION '" + direction + "' must be Inward or Outward");
+
+            // the partner's code: a whole number (leading zeros don't matter)
+            String orgCode = values.get("npsb_org_code");
+            if (!orgCode.isEmpty() && OrgCodes.normalize(orgCode) == null) {
+                errors.add("NPSB_ORG_CODE '" + orgCode + "' is not a number");
+            }
 
             // 4) amount must be a positive number
             BigDecimal amount = null;

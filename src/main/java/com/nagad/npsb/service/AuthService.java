@@ -41,6 +41,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -89,6 +90,7 @@ public class AuthService {
 
     public static final int PBKDF2_ITERATIONS = 600_000;
     public static final String REFRESH_COOKIE = "npsb_refresh";
+    /** Path of the refresh and trusted-device cookies below the context path (cookiePath adds the context path). */
     public static final String REFRESH_COOKIE_PATH = "/api/auth";
     public static final String TRUSTED_COOKIE = "npsb_trusted";  // trusted device: password-only sign-in (same path as the refresh cookie)
     public static final int REFRESH_REUSE_GRACE_SECONDS = 30;    // two tabs refreshing at the same moment is not theft
@@ -124,13 +126,19 @@ public class AuthService {
     private final RateLimiter forgotLimiter = new RateLimiter(() -> 5, 60);
     private final RateLimiter verifyLimiter = new RateLimiter(() -> 10, 60);
     private final RateLimiter resendLimiter = new RateLimiter(() -> 5, 60);
+    /** Context path + REFRESH_COOKIE_PATH, e.g. /email-automation-backend/api/auth. */
+    private final String cookiePath;
 
     public AuthService(UserRepository users, AuthEventRepository authEvents, EmailVerificationCodeRepository codes,
                        PendingRegistrationRepository pendingRegistrations, RefreshTokenRepository refreshTokens,
                        TrustedDeviceRepository trustedDevices, AppSettingRepository appSettings, JdbcClient jdbc,
                        EntityManager entityManager, TransactionTemplate tx, LiveSettings live, NpsbProperties properties,
                        JwtService jwt, CurrentUser currentUser, EmailService emailService, EmailCheck emailCheck,
-                       BackgroundTasks backgroundTasks) {
+                       BackgroundTasks backgroundTasks,
+                       @Value("${server.servlet.context-path:}") String contextPath) {
+        // the browser only sends the cookies back to this path, so it includes the context path
+        String base = contextPath == null ? "" : contextPath.replaceAll("/+$", "");
+        this.cookiePath = base + REFRESH_COOKIE_PATH;
         this.users = users;
         this.authEvents = authEvents;
         this.codes = codes;
@@ -281,12 +289,12 @@ public class AuthService {
         entityManager.flush();
         // without "remember me": gone when the browser closes
         Cookies.set(response, REFRESH_COOKIE, raw, rememberMe ? days * 86400 : null, true, properties.isCookieSecure(),
-                "strict", REFRESH_COOKIE_PATH);
+                "strict", cookiePath);
         return token;
     }
 
     void clearRefreshCookie(HttpServletResponse response) {
-        Cookies.delete(response, REFRESH_COOKIE, REFRESH_COOKIE_PATH, true, properties.isCookieSecure(), "strict");
+        Cookies.delete(response, REFRESH_COOKIE, cookiePath, true, properties.isCookieSecure(), "strict");
     }
 
     /** Sign out every session of this user (the refresh tokens stop working). */
@@ -315,7 +323,7 @@ public class AuthService {
         d.setIpAddress(ClientInfo.clientIp());
         d.setExpiresAt(Py.utcnow().plusDays(days));
         trustedDevices.save(d);
-        Cookies.set(response, TRUSTED_COOKIE, raw, days * 86400, true, properties.isCookieSecure(), "strict", REFRESH_COOKIE_PATH);
+        Cookies.set(response, TRUSTED_COOKIE, raw, days * 86400, true, properties.isCookieSecure(), "strict", cookiePath);
     }
 
     /** This browser's trusted-device record for this user, if it is still valid. */
@@ -332,7 +340,7 @@ public class AuthService {
         if (!Py.isEmpty(raw)) {
             jdbc.sql("UPDATE trusted_devices SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL")
                     .params(Py.utcnow(), hashToken(raw)).update();
-            Cookies.delete(response, TRUSTED_COOKIE, REFRESH_COOKIE_PATH, true, properties.isCookieSecure(), "strict");
+            Cookies.delete(response, TRUSTED_COOKIE, cookiePath, true, properties.isCookieSecure(), "strict");
         }
     }
 

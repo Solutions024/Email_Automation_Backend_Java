@@ -320,26 +320,32 @@ final class ContractScenario {
     private void partners() throws Exception {
         step("partners: list (none yet)").get("/api/partners").as("maker").send();
         bkashId = step("partners: create bKash").post("/api/partners").as("maker")
-                .json(obj("name", "bKash", "is_active", true, "emails", list(
+                .json(obj("org_code", "22002", "name", "bKash", "is_active", true, "emails", list(
                         obj("email", "dispute@bkash.com"),
                         obj("email", "bad.box@bkash.com", "is_active", true)))).send().id("/partner/id");
         rocketId = step("partners: create Rocket").post("/api/partners").as("maker")
-                .json(obj("name", "  Rocket ", "emails", list(obj("email", " Recon@Rocket.com.bd ")))).send().id("/partner/id");
+                .json(obj("org_code", "022001", "name", "  Rocket ", "emails", list(obj("email", " Recon@Rocket.com.bd ")))).send()
+                .id("/partner/id");
         tallyId = step("partners: create TallyPay (inactive)").post("/api/partners").as("checker")
-                .json(obj("name", "TallyPay", "is_active", false, "emails", list(obj("email", "ops@tallypay.com.bd")))).send()
+                .json(obj("org_code", 22004, "name", "TallyPay", "is_active", false, "emails", list(obj("email", "ops@tallypay.com.bd")))).send()
                 .id("/partner/id");
         sureId = step("partners: create SureCash (no active address)").post("/api/partners").as("checker")
-                .json(obj("name", "SureCash", "emails", list(obj("email", "desk@surecash.net", "is_active", false)))).send()
+                .json(obj("org_code", "22005", "name", "SureCash", "emails", list(obj("email", "desk@surecash.net", "is_active", false)))).send()
                 .id("/partner/id");
         step("partners: an admin can create partners too").post("/api/partners").as("admin")
-                .json(obj("name", "Upay Test", "emails", list())).send();
+                .json(obj("org_code", "999", "name", "Upay Test", "emails", list())).send();
 
         step("partners: name that exists (other case and spaces) 400").post("/api/partners").as("maker")
-                .json(obj("name", " BKASH ", "emails", list())).send();
+                .json(obj("org_code", "777", "name", " BKASH ", "emails", list())).send();
+        step("partners: no code 400").post("/api/partners").as("maker").json(obj("name", "Upay", "emails", list())).send();
+        step("partners: code that is not a number 400").post("/api/partners").as("maker")
+                .json(obj("org_code", "22-003", "name", "Upay", "emails", list())).send();
+        step("partners: another partner's code with leading zeros 400").post("/api/partners").as("maker")
+                .json(obj("org_code", "0022002", "name", "Upay", "emails", list())).send();
         step("partners: address listed twice 400").post("/api/partners").as("maker")
-                .json(obj("name", "Upay", "emails", list(obj("email", "a@upay.com.bd"), obj("email", "A@upay.com.bd")))).send();
+                .json(obj("org_code", "300", "name", "Upay", "emails", list(obj("email", "a@upay.com.bd"), obj("email", "A@upay.com.bd")))).send();
         step("partners: disposable address 400").post("/api/partners").as("maker")
-                .json(obj("name", "Upay", "emails", list(obj("email", "x@mailinator.com")))).send();
+                .json(obj("org_code", "300", "name", "Upay", "emails", list(obj("email", "x@mailinator.com")))).send();
         step("partners: empty name 400").post("/api/partners").as("maker").json(obj("name", "   ", "emails", list())).send();
         step("partners: invalid fields 422").post("/api/partners").as("maker")
                 .json(obj("is_active", "sometimes", "emails", list(obj("email", "not an email"), "x"))).send();
@@ -352,6 +358,8 @@ final class ContractScenario {
                         obj("email", "claims@rocket.com.bd", "is_active", true, "clear_problem", false)))).send();
         step("partners: rename to another partner's name 400").put("/api/partners/" + rocketId).as("maker")
                 .json(obj("name", "bkash", "emails", list())).send();
+        step("partners: change to another partner's code 400").put("/api/partners/" + rocketId).as("maker")
+                .json(obj("org_code", "22002", "name", "Rocket", "emails", list())).send();
         step("partners: update an unknown partner 404").put("/api/partners/9999").as("maker")
                 .json(obj("name", "Nobody", "emails", list())).send();
         step("partners: update with a non-integer id 422").put("/api/partners/abc").as("maker")

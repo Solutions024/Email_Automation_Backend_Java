@@ -46,6 +46,10 @@ server:
   # where the API listens (also: java -jar npsb-backend.jar --host 0.0.0.0 --port 8000)
   address: ${HOST:127.0.0.1}
   port: ${PORT:8000}
+  servlet:
+    # Empty (the default): everything at the root, e.g. /api/partners, /livez, /docs, and the app at /login.
+    # Optional: SERVER_CONTEXT_PATH=/some-path puts every route below that path (for a gateway that routes by path).
+    context-path: ${SERVER_CONTEXT_PATH:}
   shutdown: graceful
   tomcat:
     max-http-form-post-size: 30MB
@@ -85,6 +89,9 @@ npsb:
   jwt-secret: ${JWT_SECRET:}
   cookie-secure: ${COOKIE_SECURE:false}
   app-base-url: ${APP_BASE_URL:http://localhost:5173}
+  # The built frontend, served by the backend at the root of its port (http://localhost:8000/, /login...) next to
+  # the API under the context path. Relative to the backend folder; skipped when the folder doesn't exist.
+  frontend-dir: ${FRONTEND_DIR:../frontend/dist}
   cc-emails: ${CC_EMAILS:}
   followup-due-days: ${FOLLOWUP_DUE_DAYS:3}
   auto-followup-enabled: ${AUTO_FOLLOWUP_ENABLED:false}

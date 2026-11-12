@@ -4,6 +4,7 @@ import com.nagad.npsb.service.AuthService;
 import com.nagad.npsb.service.CaseIds;
 import com.nagad.npsb.service.FollowupService;
 import com.nagad.npsb.service.Inbox;
+import com.nagad.npsb.service.PartnerService;
 import com.nagad.npsb.service.Seed;
 import com.nagad.npsb.service.ServerSettings;
 import org.slf4j.Logger;
@@ -32,11 +33,12 @@ public class StartupTasks implements ApplicationRunner {
     private final FollowupService followups;
     private final Inbox inbox;
     private final CaseIds caseIds;
+    private final PartnerService partnerService;
     /** npsb.jobs.enabled=false: no background jobs (the API tests start the backend that way). */
     private final boolean jobsEnabled;
 
     public StartupTasks(NpsbProperties properties, Seed seed, ServerSettings serverSettings, AuthService authService,
-                        FollowupService followups, Inbox inbox, CaseIds caseIds, @Value("${npsb.jobs.enabled:true}") boolean jobsEnabled) {
+                        FollowupService followups, Inbox inbox, CaseIds caseIds, PartnerService partnerService, @Value("${npsb.jobs.enabled:true}") boolean jobsEnabled) {
         this.jobsEnabled = jobsEnabled;
         this.properties = properties;
         this.seed = seed;
@@ -45,6 +47,7 @@ public class StartupTasks implements ApplicationRunner {
         this.followups = followups;
         this.inbox = inbox;
         this.caseIds = caseIds;
+        this.partnerService = partnerService;
     }
 
     @Override
@@ -56,6 +59,7 @@ public class StartupTasks implements ApplicationRunner {
         seed.seedTemplates();               // the standard email templates
         serverSettings.load();              // settings changed on the System Settings page
         authService.ensureBuiltInAdmin();   // the one admin that creates every account
+        partnerService.fillOrgCodes();      // NPSB_ORG_CODE for partners made before codes, from their uploads
         caseIds.backfill();                 // case IDs for emails made before they existed
         if (jobsEnabled) {
             followups.start();              // automatic follow-ups

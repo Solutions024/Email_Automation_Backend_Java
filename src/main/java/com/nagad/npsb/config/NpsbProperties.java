@@ -47,6 +47,11 @@ public class NpsbProperties {
     private boolean cookieSecure = false;
     /** The frontend: "Forgot password" emails link here; also the one allowed CORS origin. */
     private String appBaseUrl = "http://localhost:5173";
+    /**
+     * FRONTEND_DIR: the built frontend (its dist folder), relative to the backend folder or absolute. When it exists,
+     * the backend also serves the app on its port: /, /login... (FrontendConfig). Empty or missing: the API only.
+     */
+    private String frontendDir = "";
     /** CC_EMAILS: comma separated default CC addresses for new emails. */
     private String ccEmails = "";
     /** Defaults of the Email Configuration page. */
@@ -129,6 +134,17 @@ public class NpsbProperties {
     /** APP_BASE_URL without a trailing slash. */
     public String baseUrl() {
         return Py.rstrip(appBaseUrl, "/");
+    }
+
+    /**
+     * The frontend's origin for CORS: APP_BASE_URL without its path (http://localhost:5173/some-path
+     * -> http://localhost:5173). A browser's Origin header never has a path.
+     */
+    public String frontendOrigin() {
+        String url = baseUrl();
+        int scheme = url.indexOf("://");
+        int path = scheme < 0 ? -1 : url.indexOf('/', scheme + 3);
+        return path < 0 ? url : url.substring(0, path);
     }
 
     /** CC_EMAILS as a list (blank entries left out). */

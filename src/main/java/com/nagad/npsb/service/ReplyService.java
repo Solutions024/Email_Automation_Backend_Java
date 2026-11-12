@@ -92,9 +92,18 @@ public class ReplyService {
                 user.getId(), Inbox.utcToLocal(user.getCreatedAt()));
     }
 
+    /** partner id -> name, with each partner's NPSB_ORG_CODE alongside (one query for a whole list). */
+    static final class PartnerNames extends HashMap<Integer, String> {
+        final Map<Integer, String> codes = new HashMap<>();
+    }
+
     Map<Integer, String> partnerNames() {
-        Map<Integer, String> out = new HashMap<>();
-        for (Object[] row : sql.rows("SELECT id, name FROM partners")) out.put(((Number) row[0]).intValue(), (String) row[1]);
+        PartnerNames out = new PartnerNames();
+        for (Object[] row : sql.rows("SELECT id, name, org_code FROM partners")) {
+            int id = ((Number) row[0]).intValue();
+            out.put(id, (String) row[1]);
+            out.codes.put(id, (String) row[2]);
+        }
         return out;
     }
 
@@ -116,6 +125,7 @@ public class ReplyService {
                 "review_reason", r.getReviewReason(), "suggested_email_id", r.getSuggestedDispatchId(),
                 "handled_by", r.getHandledBy(), "handled_at", Py.iso(r.getHandledAt()),
                 "email_id", d != null ? d.getId() : null, "case_id", d != null ? d.getCaseId() : null, "partner_id", partnerId,
+                "partner_code", partnerId != null && partners instanceof PartnerNames names ? names.codes.get(partnerId) : null,
                 "partner_name", partners.containsKey(partnerId) ? partners.get(partnerId) : "Unknown partner",
                 "mail_type", d != null ? d.getMailType() : null, "from_email", r.getFromEmail(), "from_name", r.getFromName(),
                 "subject", r.getSubject(), "snippet", r.getSnippet(), "matched_by", r.getMatchedBy(),
@@ -171,8 +181,10 @@ public class ReplyService {
         if (partnerId != null && partnerId != 0) query = query.and("t.partner_id = ?", partnerId);
         if (!Py.strip(q).isEmpty()) {
             String like = "%" + Py.strip(q) + "%";
-            query = query.and("(LOWER(t.from_email) LIKE LOWER(?) OR LOWER(t.from_name) LIKE LOWER(?) OR LOWER(t.subject) LIKE LOWER(?) "
-                    + "OR LOWER(t.snippet) LIKE LOWER(?) OR LOWER(p.name) LIKE LOWER(?))", like, like, like, like, like);
+            String code = OrgCodes.normalize(Py.strip(q));  // the partner's code: "0103" finds 103
+            query = query.and("(p.org_code = ? OR LOWER(t.from_email) LIKE LOWER(?) OR LOWER(t.from_name) LIKE LOWER(?) "
+                    + "OR LOWER(t.subject) LIKE LOWER(?) OR LOWER(t.snippet) LIKE LOWER(?) OR LOWER(p.name) LIKE LOWER(?))",
+                    code == null ? "" : code, like, like, like, like, like);
         }
         List<EmailReply> found = sql.all(EmailReply.class, query.sql() + " ORDER BY t.received_at DESC, t.id DESC LIMIT 500", query.argArray());
         Set<Long> unreadIds = new HashSet<>();

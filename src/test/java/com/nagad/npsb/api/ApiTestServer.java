@@ -38,8 +38,10 @@ public final class ApiTestServer {
         }
         context = new SpringApplicationBuilder(NpsbApplication.class)
                 // no background jobs (automatic follow-ups, mailbox check), as before
-                .properties("server.port=0", "server.address=127.0.0.1", "npsb.jobs.enabled=false")
-                .run();
+                .properties("npsb.jobs.enabled=false")
+                // as arguments: they win over application.yml (PORT / HOST), so a backend already running on
+                // port 8000 doesn't get in the way. Routes at the root (the context path is tested in ContextPathTest).
+                .run("--server.port=0", "--server.address=127.0.0.1", "--server.servlet.context-path=");
         base = "http://127.0.0.1:" + context.getEnvironment().getProperty("local.server.port");
         return base;
     }

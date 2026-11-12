@@ -74,7 +74,7 @@ public class DraftService {
         try {
             tx.executeWithoutResult(status -> {
                 Upload upload = uploads.getUploadOr404(uploadId);
-                Map<String, Partner> partners = groups.partnersByName();
+                Map<String, Partner> partners = groups.partnersByKey();
                 Map<String, EmailTemplate> chosen = new HashMap<>();
                 for (Map.Entry<String, Integer> e : chosenIds.entrySet()) {
                     EmailTemplate template = templates.findById(e.getValue()).orElse(null);
@@ -92,8 +92,12 @@ public class DraftService {
 
                     // --- checks: skip this partner but continue with the others
                     if (partner == null) {
-                        errors.add(txns.get(0).getPartnerName() + " – " + EmailService.MAIL_TYPES.get(mailType) + ": no partner with this name in "
-                                + "Partner Configuration. No email prepared.");
+                        String code = TransactionGroups.codeOfKey(key);
+                        errors.add(code != null
+                                ? txns.get(0).getPartnerName() + " (code " + code + ") – " + EmailService.MAIL_TYPES.get(mailType)
+                                        + ": no partner with the code " + code + " in Partner Configuration. No email prepared."
+                                : txns.get(0).getPartnerName() + " – " + EmailService.MAIL_TYPES.get(mailType) + ": no partner with this name in "
+                                        + "Partner Configuration. No email prepared.");
                         continue;
                     }
                     String label = partner.getName() + " – " + EmailService.MAIL_TYPES.get(mailType);
@@ -128,7 +132,7 @@ public class DraftService {
                         dispatch.setPartnerId(partner.getId());
                         dispatch.setMailType(mailType);
                         // shown while composing; one prepare makes at most one email per partner and mail type
-                        dispatch.setCaseId(caseIds.next(Py.now().toLocalDate(), partner.getId(), mailType));
+                        dispatch.setCaseId(caseIds.next(Py.now().toLocalDate(), partner, mailType));
                     }
                     if (chosen.containsKey(mailType)) {
                         dispatch.setTemplateId(chosen.get(mailType).getId());
