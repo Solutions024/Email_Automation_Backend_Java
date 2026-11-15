@@ -62,8 +62,9 @@ that routes by path; the sign-in cookies and redirects follow it. The default is
 
 ### Docker
 
-The `Dockerfile` builds the jar with the Gradle wrapper inside Docker (no local JDK needed) and runs it on a
-Java 21 JRE as a non-root user (NGD-CTR-001). All settings come from the environment at run time.
+The `Dockerfile` builds the jar with the Gradle wrapper inside Docker (no local JDK needed), refreshes runtime
+packages, and runs it on a Java 21 JRE as a non-root user (NGD-CTR-001). Compose builds the MySQL 8.0.46 image
+from `Dockerfile.mysql` and updates its operating-system packages. All settings come from the environment at run time.
 
     docker compose up -d --build     # this backend + its own MySQL (project "npsb-backend"), API on :8000
     docker compose logs -f backend

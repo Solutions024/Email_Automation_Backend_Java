@@ -39,6 +39,8 @@ RUN ./gradlew --no-daemon -q bootJar \
 # CIB-01 / CIB-02 / CIB-03: JRE only (no compiler, no Gradle)
 FROM eclipse-temurin:21-jre-alpine
 
+RUN apk upgrade --no-cache
+
 LABEL org.opencontainers.image.title="NPSB Dispute Email Automation - Backend" \
       org.opencontainers.image.description="REST API for NPSB dispute email handling (Spring Boot, Java 21 runtime)" \
       org.opencontainers.image.source="https://github.com/Solutions024/Email_Automation_Backend_Java"

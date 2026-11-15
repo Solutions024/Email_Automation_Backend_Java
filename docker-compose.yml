@@ -11,7 +11,10 @@ name: npsb-backend
 
 services:
   mysql:
-    image: mysql:8.0.40
+    build:
+      context: .
+      dockerfile: Dockerfile.mysql
+    image: npsb-mysql:8.0.46
     env_file: .env
     # The root password is the DB_PASSWORD from .env (one place for the password)
     entrypoint: ["sh", "-c", "export MYSQL_ROOT_PASSWORD=\"$$DB_PASSWORD\"; exec docker-entrypoint.sh mysqld"]
