@@ -2,8 +2,8 @@
 spring-boot = "4.1.2"
 spring-dependency-management = "1.1.7"
 springdoc = "3.2.0"
-poi = "5.3.0"
-jsoup = "1.18.1"
+poi = "5.4.0"
+jsoup = "1.23.2"
 
 [libraries]
 # Spring Boot starters (versions come from the Spring Boot BOM)

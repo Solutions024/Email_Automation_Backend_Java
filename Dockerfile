@@ -37,7 +37,7 @@ RUN ./gradlew --no-daemon -q bootJar \
 # Stage 2: Runtime
 # ============================================================
 # CIB-01 / CIB-02 / CIB-03: JRE only (no compiler, no Gradle)
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jre-alpine
 
 LABEL org.opencontainers.image.title="NPSB Dispute Email Automation - Backend" \
       org.opencontainers.image.description="REST API for NPSB dispute email handling (Spring Boot, Java 21 runtime)" \
@@ -55,11 +55,11 @@ ENV HOME=/home/appuser \
 # CIB-05: dedicated non-root user and group (fixed IDs for runAsUser / volume permissions)
 # CIB-14: only the log folder is writable by the app; the jar stays root-owned and read-only
 # CIB-15: drop setuid/setgid bits (su, passwd, mount, ...) the application never needs
-# CIB-08 / CIB-09: no packages installed (curl for the health check is already in the base image)
-RUN groupadd --system --gid 10001 appgroup \
-    && useradd --system --uid 10001 --gid appgroup \
-       --home-dir /home/appuser --create-home --shell /usr/sbin/nologin appuser \
-    && mkdir -p /app/logs \
+# CIB-08 / CIB-09: no packages installed (BusyBox wget for the health check is already in the base image)
+RUN addgroup -S -g 10001 appgroup \
+    && adduser -S -D -H -u 10001 -G appgroup -h /home/appuser -s /sbin/nologin appuser \
+    && mkdir -p /home/appuser /app/logs \
+    && chown appuser:appgroup /home/appuser \
     && chown appuser:appgroup /app/logs \
     && chmod 750 /app/logs \
     && find / -xdev -type f -perm /6000 -exec chmod a-s {} +
@@ -76,7 +76,7 @@ EXPOSE 8000
 
 # CIB-18: liveness probe built into the backend (/startupz, /readyz and /actuator/health/* also exist for Kubernetes)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -fsS --max-time 8 "http://127.0.0.1:${PORT}${SERVER_CONTEXT_PATH}/livez" || exit 1
+    CMD wget -q -T 8 -O /dev/null "http://127.0.0.1:${PORT}${SERVER_CONTEXT_PATH}/livez" || exit 1
 
 # CIB-17: exec form, so the JVM is PID 1 and receives SIGTERM directly
 # JVM flags go here, not in JAVA_TOOL_OPTIONS (that makes the JVM print "Picked up JAVA_TOOL_OPTIONS" at start)
