@@ -1,4 +1,15 @@
+# MySQL for docker compose (see docker-compose.yml), hardened against the image scan findings.
 FROM mysql:8.0.46
 
+# OS packages: latest Oracle Linux 9 security updates.
+# mysql-shell: not used by the server or its entrypoint; it bundles its own Python with vulnerable packages
+#   (certifi, cryptography, pyOpenSSL, urllib3, pip, paramiko). Nothing depends on it.
+# gosu: only used by the entrypoint to drop from root to "mysql"; it is built with an old Go toolchain
+#   (crypto/tls and other stdlib CVEs). The container runs as "mysql" below, so the entrypoint never calls it.
 RUN microdnf upgrade --refresh -y \
-    && microdnf clean all
+    && microdnf remove -y mysql-shell \
+    && microdnf clean all \
+    && rm -rf /usr/lib/mysqlsh /usr/local/bin/gosu
+
+# Non-root: /var/lib/mysql and /var/run/mysqld are already owned by mysql (uid 999) in the base image
+USER mysql
