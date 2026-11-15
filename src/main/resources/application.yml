@@ -89,9 +89,6 @@ npsb:
   jwt-secret: ${JWT_SECRET:}
   cookie-secure: ${COOKIE_SECURE:false}
   app-base-url: ${APP_BASE_URL:http://localhost:5173}
-  # The built frontend, served by the backend at the root of its port (http://localhost:8000/, /login...) next to
-  # the API under the context path. Relative to the backend folder; skipped when the folder doesn't exist.
-  frontend-dir: ${FRONTEND_DIR:../frontend/dist}
   cc-emails: ${CC_EMAILS:}
   followup-due-days: ${FOLLOWUP_DUE_DAYS:3}
   auto-followup-enabled: ${AUTO_FOLLOWUP_ENABLED:false}

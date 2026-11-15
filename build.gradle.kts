@@ -49,7 +49,6 @@ tasks.withType<JavaCompile>().configureEach {
 // SERVER_CONTEXT_PATH empty: the API and contract tests call the routes at the root, as recorded
 val testEnvironment = mapOf(
     "SERVER_CONTEXT_PATH" to "",
-    "FRONTEND_DIR" to "",  // the API only (FrontendServingTest serves a frontend of its own)
     "NPSB_ENV_FILE" to "none",
     "DATABASE_URL" to "jdbc:h2:mem:npsbtest;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
     "MAIL_PROVIDER" to "smtp",

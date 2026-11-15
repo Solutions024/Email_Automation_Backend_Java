@@ -32,7 +32,6 @@ class ContextPathTest {
         context = new SpringApplicationBuilder(NpsbApplication.class)
                 .properties("npsb.jobs.enabled=false")
                 .run("--server.port=0", "--server.address=127.0.0.1", "--server.servlet.context-path=" + PREFIX,
-                        "--npsb.frontend-dir=",
                         "--npsb.db.url=jdbc:h2:mem:npsbcontextpath;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
         host = "http://127.0.0.1:" + context.getEnvironment().getProperty("local.server.port");
     }

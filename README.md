@@ -41,24 +41,20 @@ Dependency versions are in `gradle/libs.versions.toml` (Spring Boot manages most
 - Health probes (no sign-in): `/startupz`, `/livez`, `/readyz` (same answers as before) and Spring Boot's
   `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`.
 
-### The whole app on one port (http://localhost:8000/login)
+### Addresses
 
-When the frontend is built (`npm run build` in the frontend folder, which makes `frontend/dist`), the backend also
-serves the app on its port, next to the API, everything at the root:
+This backend serves only the API and its own system pages; the app (frontend) runs on its own port, 5173, and
+passes `/api` to this backend.
 
 | Address | What |
 |---|---|
-| http://localhost:8000/login, http://localhost:8000/ (any page address) | the app (sign-in page) |
-| http://localhost:8000/api/... (e.g. /api/partners) | the API, as before |
-| http://localhost:8000/docs, /livez, /readyz, /startupz | API docs and health probes, as before |
+| http://localhost:8000/api/... (e.g. /api/partners) | the API the frontend calls |
+| http://localhost:8000/livez, /readyz, /startupz | health probes (outside the API, no /api) |
+| http://localhost:8000/docs, /openapi.json, /actuator/health | API docs and Spring Boot health (no /api) |
+| anything else (e.g. /login, /partners) | 404: pages are on http://localhost:5173 |
 
-`/api/...` is always the API: an unknown API path still answers 404, a wrong method 405. `FRONTEND_DIR` (default
-`../frontend/dist`, relative to this folder) says where the build is; when there is no build, or `FRONTEND_DIR=` is
-empty, the backend is the API only. After changing the frontend, run `npm run build` again (no restart needed).
-Set `APP_BASE_URL=http://localhost:8000`. Code: `config/FrontendConfig`.
-
-Optional: `SERVER_CONTEXT_PATH=/some-path` puts every route (API, app, docs, probes) below that path, for a gateway
-that routes by path; the sign-in cookies and redirects follow it. The default is none.
+Optional: `SERVER_CONTEXT_PATH=/some-path` puts every route below that path, for a gateway that routes by path; the
+sign-in cookies and redirects follow it. The default is none.
 
 ### Docker
 

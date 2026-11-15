@@ -81,6 +81,18 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void theBackendServesOnlyTheApiNotThePages() throws Exception {
+        // pages are on the frontend's port (5173); here a page address is just an unknown path
+        for (String page : List.of("/", "/login", "/partners", "/sent-mails")) {
+            ApiTestServer.Response r = send("GET", page, null, null);
+            assertEquals(404, r.status(), page);
+            assertEquals("{\"detail\":\"Not Found\"}", r.body(), page);
+        }
+        assertEquals(200, send("GET", "/livez", null, null).status());            // system pages: no /api
+        assertEquals(401, send("GET", "/api/partners", null, null).status());     // the API: /api/...
+    }
+
+    @Test
     void thereIsNoSelfSignUp() throws Exception {
         ApiTestServer.Response r = send("POST", "/api/auth/register", null, Map.of("full_name", "Someone", "username", "someone",
                 "email", "someone@nagad.com.bd", "password", "Str0ng!Passw0rd#", "role", "user"));
