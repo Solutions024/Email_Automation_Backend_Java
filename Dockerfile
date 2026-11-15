@@ -39,7 +39,12 @@ RUN ./gradlew --no-daemon -q bootJar \
 # CIB-01 / CIB-02 / CIB-03: JRE only (no compiler, no Gradle)
 FROM eclipse-temurin:21-jre-alpine
 
-RUN apk upgrade --no-cache
+# Latest Alpine security updates, then remove what the app never uses:
+# gnupg (and through it gnutls / gnupg-dirmngr) and p11-kit-trust pull in p11-kit (CVE-2026-13757).
+# Java uses its own CA store ($JAVA_HOME/lib/security/cacerts), not p11-kit.
+RUN apk upgrade --no-cache \
+    && apk del --no-cache p11-kit-trust gnupg \
+    && ! apk info -e p11-kit gnutls gnupg
 
 LABEL org.opencontainers.image.title="NPSB Dispute Email Automation - Backend" \
       org.opencontainers.image.description="REST API for NPSB dispute email handling (Spring Boot, Java 21 runtime)" \
