@@ -36,6 +36,13 @@ After adding or upgrading a dependency (or Gradle), record the new checksums and
 For a new Gradle version, take `distributionSha256Sum` from
 `https://services.gradle.org/distributions/gradle-<version>-bin.zip.sha256`.
 
+IntelliJ IDEA / VS Code download a few files of their own when they sync the project: Gradle's source code
+(trusted in the file) and the sources of Gradle's built-in Kotlin, whose metadata (`kotlin-stdlib-<v>.module`,
+`kotlin-reflect-<v>.pom`) is listed for the current Kotlin version. The command above doesn't record them,
+because the build itself never uses them. After a Gradle upgrade changes the Kotlin version
+(`./gradlew --version`), the IDE sync reports them as missing: add the new version's two entries, checked
+against the `.sha1` files Maven Central publishes next to them.
+
 ## Run
 
 1. Copy `.env.example` to `.env` (next to where you start the jar) and fill in the database,
