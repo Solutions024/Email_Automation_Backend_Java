@@ -43,7 +43,7 @@ public class ActivityService {
         parts.add(Arrays.asList(sql.rows("SELECT COUNT(id), MAX(id), MAX(handled_at) FROM email_replies").get(0)));
         parts.add(Arrays.asList(sql.rows("SELECT MAX(id), MAX(decided_at) FROM change_requests").get(0)));
         parts.add(answerService.activityParts());
-        return Py.map("stamp", Crypto.sha1Hex(String.valueOf(parts)).substring(0, 16));
+        return Py.map("stamp", Crypto.sha256Hex(String.valueOf(parts)).substring(0, 16));
     }
 
     /** What needs someone's attention, for the banner and the menu counts. */

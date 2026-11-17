@@ -455,6 +455,17 @@ public final class SchemaInitializer {
         {"transactions", "nagad_status", "VARCHAR(40) NOT NULL"},
     };
 
+    static {  // every name and type in the lists above is plain SQL text (Ddl), checked once when the class loads
+        for (String[] t : TABLES) {
+            Ddl.name(t[0]);
+            for (String column : t[2].isEmpty() ? new String[0] : t[2].split(",")) Ddl.createIndex(t[0], column);
+        }
+        for (String[] c : LATER_COLUMNS) Ddl.addColumn(c[0], c[1], c[2]);
+        for (String[] c : NULLABLE_COLUMNS) Ddl.modifyColumn(c[0], c[1], c[2]);
+        for (String[] c : REMOVED_COLUMNS) Ddl.dropColumn(c[0], c[1]);
+        for (String[] c : WIDENED_COLUMNS) Ddl.modifyColumn(c[0], c[1], c[2]);
+    }
+
     /** On startup: create missing tables, then bring older tables up to date. */
     public void createTables(DataSource dataSource) throws SQLException {
         try (Connection c = dataSource.getConnection()) {
@@ -465,7 +476,7 @@ public final class SchemaInitializer {
                 try (Statement st = c.createStatement()) {
                     st.execute(createTableSql(table[0], table[1]));
                     for (String column : table[2].isEmpty() ? new String[0] : table[2].split(",")) {
-                        st.execute("CREATE INDEX ix_" + table[0] + "_" + column + " ON " + table[0] + " (" + column + ")");
+                        st.execute(Ddl.createIndex(table[0], column));
                     }
                 }
             }
@@ -474,7 +485,7 @@ public final class SchemaInitializer {
     }
 
     private String createTableSql(String table, String body) {
-        String sql = "CREATE TABLE " + table + " (\n" + body + "\n)";
+        String sql = "CREATE TABLE " + Ddl.name(table) + " (\n" + body + "\n)";
         if (!mysql) {  // H2 and others: the generic names of the MySQL types
             sql = sql.replace("LONGBLOB", "BLOB").replace("MEDIUMTEXT", "CLOB").replace(" TEXT", " CLOB");
         }
@@ -527,7 +538,7 @@ public final class SchemaInitializer {
         for (String[] later : LATER_COLUMNS) {
             if (!columns(c, later[0]).containsKey(later[1])) {
                 try (Statement st = c.createStatement()) {
-                    st.execute("ALTER TABLE " + later[0] + " ADD COLUMN `" + later[1] + "` " + later[2]);
+                    st.execute(Ddl.addColumn(later[0], later[1], later[2]));
                 }
             }
         }
@@ -569,7 +580,7 @@ public final class SchemaInitializer {
             Object[] current = columns(c, n[0]).get(n[1]);
             if (current != null && !(Boolean) current[2]) {
                 try (Statement st = c.createStatement()) {
-                    st.execute("ALTER TABLE " + n[0] + " MODIFY " + n[1] + " " + n[2]);
+                    st.execute(Ddl.modifyColumn(n[0], n[1], n[2]));
                 }
             }
         }
@@ -580,7 +591,7 @@ public final class SchemaInitializer {
         for (String[] r : REMOVED_COLUMNS) {
             if (!columns(c, r[0]).containsKey(r[1])) continue;
             try (Statement st = c.createStatement()) {
-                st.execute("ALTER TABLE " + r[0] + " DROP COLUMN " + r[1]);
+                st.execute(Ddl.dropColumn(r[0], r[1]));
                 LOG.info("Removed column {}.{} (no longer used).", r[0], r[1]);
             } catch (SQLException e) {
                 LOG.warn("Could not remove column {}.{}: {}", r[0], r[1], e.getMessage());
@@ -595,7 +606,7 @@ public final class SchemaInitializer {
             int wanted = Integer.parseInt(w[2].substring(w[2].indexOf('(') + 1, w[2].indexOf(')')));
             if (current != null && (Integer) current[1] > 0 && (Integer) current[1] < wanted) {
                 try (Statement st = c.createStatement()) {
-                    st.execute("ALTER TABLE " + w[0] + " MODIFY " + w[1] + " " + w[2]);
+                    st.execute(Ddl.modifyColumn(w[0], w[1], w[2]));
                 }
             }
         }
@@ -621,7 +632,7 @@ public final class SchemaInitializer {
                     st.execute("ALTER TABLE email_dispatches ADD UNIQUE KEY ux_dispatch_upload_partner_type "
                             + "(upload_id, partner_id, mail_type)");
                 }
-                for (String name : old) st.execute("ALTER TABLE email_dispatches DROP INDEX `" + name + "`");
+                for (String name : old) st.execute(Ddl.dropIndex("email_dispatches", name));
             }
         } catch (SQLException e) {
             LOG.warn("Could not update the unique key of email_dispatches ({}). "

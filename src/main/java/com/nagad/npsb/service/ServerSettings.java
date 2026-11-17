@@ -42,7 +42,7 @@ public class ServerSettings {
 
     public static final String PREFIX = "server.";
     private static final Pattern HOST_RE = Pattern.compile("^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$");
-    private static final Pattern EMAIL_RE = Pattern.compile("^[^@\\s,;]+@[^@\\s,;]+\\.[^@\\s,;]+$", Pattern.UNICODE_CHARACTER_CLASS);
+    private static final Pattern EMAIL_RE = Pattern.compile("^[^@\\s,;]+@[^@\\s,;][^@\\s,;.]*\\.[^@\\s,;]+$", Pattern.UNICODE_CHARACTER_CLASS);
 
     public record Field(String name, String label, String kind, String group, String help, Integer low, Integer high,
                         boolean required, String[][] options) {
@@ -168,14 +168,19 @@ public class ServerSettings {
         return Crypto.sha256(("npsb-server-settings:" + properties.effectiveJwtSecret()).getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Secrets are saved as "gcm:" + AES-256-GCM. */
     private String encrypt(String value) {
-        return "enc:" + Crypto.fernetEncrypt(key(), value.getBytes(StandardCharsets.UTF_8));
+        return GCM + Crypto.aesGcmEncrypt(key(), value.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** A saved secret: "gcm:" (AES-GCM), or "enc:" (Fernet, saved by older versions; load() re-saves it as "gcm:"). */
     private String decrypt(String stored) throws Crypto.InvalidToken {
-        if (!stored.startsWith("enc:")) throw new Crypto.InvalidToken();
-        return new String(Crypto.fernetDecrypt(key(), stored.substring(4)), StandardCharsets.UTF_8);
+        if (stored.startsWith(GCM)) return new String(Crypto.aesGcmDecrypt(key(), stored.substring(GCM.length())), StandardCharsets.UTF_8);
+        if (stored.startsWith(LEGACY)) return new String(Crypto.fernetDecrypt(key(), stored.substring(LEGACY.length())), StandardCharsets.UTF_8);
+        throw new Crypto.InvalidToken();
     }
+
+    private static final String GCM = "gcm:", LEGACY = "enc:";
 
     // ---------------------------------------------------------------- reading and checking values
 
@@ -263,6 +268,7 @@ public class ServerSettings {
             try {
                 Object stored = PyJson.loads(e.getValue().getValue());
                 value = field.kind().equals("secret") ? decrypt((String) stored) : clean(field, stored);
+                if (field.kind().equals("secret") && ((String) stored).startsWith(LEGACY)) reencrypt(e.getValue(), (String) value);
             } catch (Crypto.InvalidToken | RuntimeException ex) {
                 unreadable.add(name);
                 live.set(name, envValues.get(name));
@@ -271,6 +277,15 @@ public class ServerSettings {
             }
             live.set(name, value);
         }
+    }
+
+    /** Save a secret read in the old Fernet format again with AES-GCM. */
+    private void reencrypt(AppSetting row, String value) {
+        transactionTemplate.executeWithoutResult(status -> {
+            row.setValue(PyJson.dumps(encrypt(value)));
+            appSettings.save(row);
+        });
+        LOG.info("System Settings: re-encrypted the saved " + row.getKey().substring(PREFIX.length()) + " with AES-GCM");
     }
 
     /** Remove saved settings of the old Microsoft 365 provider (and a saved MAIL_PROVIDER=microsoft). */

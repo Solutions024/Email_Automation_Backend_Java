@@ -3,6 +3,7 @@ package com.nagad.npsb.util;
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -16,7 +17,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Hashing, random tokens, Fernet and JWT (HS256), compatible with what the Python backend stored. */
+/** Hashing, random tokens, AES-GCM encryption, JWT (HS256), and reading values the Python backend encrypted (Fernet). */
 public final class Crypto {
     private Crypto() {}
 
@@ -29,14 +30,6 @@ public final class Crypto {
     public static byte[] sha256(byte[] data) {
         try {
             return MessageDigest.getInstance("SHA-256").digest(data);
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    public static String sha1Hex(String text) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(text.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -87,31 +80,54 @@ public final class Crypto {
         }
     }
 
-    // ---------------------------------------------------------------- Fernet (cryptography.fernet)
+    // ---------------------------------------------------------------- AES-256-GCM
 
     public static final class InvalidToken extends Exception {
-        public InvalidToken() { super("Invalid Fernet token"); }
+        public InvalidToken() { super("Invalid encrypted value"); }
     }
 
-    /** Fernet(urlsafe_b64encode(key32)).encrypt(data) */
-    public static String fernetEncrypt(byte[] key32, byte[] data) {
+    private static final int GCM_NONCE_BYTES = 12, GCM_TAG_BITS = 128;
+
+    /** AES-256-GCM (authenticated encryption) with a random nonce: base64url(nonce + ciphertext + tag). */
+    public static String aesGcmEncrypt(byte[] key32, byte[] data) {
         try {
-            byte[] signing = Arrays.copyOfRange(key32, 0, 16), encryption = Arrays.copyOfRange(key32, 16, 32);
-            byte[] iv = new byte[16];
-            RANDOM.nextBytes(iv);
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(encryption, "AES"), new IvParameterSpec(iv));
-            byte[] ciphertext = cipher.doFinal(data);
-            ByteBuffer basic = ByteBuffer.allocate(1 + 8 + 16 + ciphertext.length);
-            basic.put((byte) 0x80).putLong(System.currentTimeMillis() / 1000).put(iv).put(ciphertext);
-            byte[] hmac = hmacSha256(signing, basic.array());
-            byte[] token = ByteBuffer.allocate(basic.capacity() + 32).put(basic.array()).put(hmac).array();
-            return Base64.getUrlEncoder().encodeToString(token);
+            byte[] nonce = new byte[GCM_NONCE_BYTES];
+            RANDOM.nextBytes(nonce);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key32, "AES"), new GCMParameterSpec(GCM_TAG_BITS, nonce));
+            byte[] sealed = cipher.doFinal(data);
+            byte[] token = ByteBuffer.allocate(nonce.length + sealed.length).put(nonce).put(sealed).array();
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(token);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
     }
 
+    /** The data aesGcmEncrypt sealed; InvalidToken when the key is wrong or the value was changed. */
+    public static byte[] aesGcmDecrypt(byte[] key32, String token) throws InvalidToken {
+        byte[] data;
+        try {
+            data = Base64.getUrlDecoder().decode(token.strip());
+        } catch (IllegalArgumentException e) {
+            throw new InvalidToken();
+        }
+        if (data.length < GCM_NONCE_BYTES + GCM_TAG_BITS / 8) throw new InvalidToken();
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key32, "AES"), new GCMParameterSpec(GCM_TAG_BITS, data, 0, GCM_NONCE_BYTES));
+            return cipher.doFinal(data, GCM_NONCE_BYTES, data.length - GCM_NONCE_BYTES);
+        } catch (Exception e) {
+            throw new InvalidToken();
+        }
+    }
+
+    // ---------------------------------------------------------------- Fernet (cryptography.fernet): reading old values only
+
+    /**
+     * Fernet(urlsafe_b64encode(key32)).decrypt(token): reads secrets saved by older versions (ServerSettings re-saves
+     * them with AES-GCM on startup). Nothing is encrypted this way any more. The HMAC-SHA256 over the whole token is
+     * checked before anything is decrypted (encrypt-then-MAC), so a changed token is refused without touching CBC.
+     */
     public static byte[] fernetDecrypt(byte[] key32, String token) throws InvalidToken {
         byte[] data;
         try {
@@ -127,7 +143,8 @@ public final class Crypto {
         try {
             byte[] iv = Arrays.copyOfRange(basic, 9, 25);
             byte[] ciphertext = Arrays.copyOfRange(basic, 25, basic.length);
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            // Fernet's format fixes AES-CBC; only tokens whose HMAC was verified above reach this point
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding"); // NOSONAR legacy read-only format, authenticated by HMAC first
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(encryption, "AES"), new IvParameterSpec(iv));
             return cipher.doFinal(ciphertext);
         } catch (Exception e) {

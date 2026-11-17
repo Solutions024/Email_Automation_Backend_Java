@@ -30,7 +30,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -394,7 +396,23 @@ public class EmailService {
     }
 
     /** An attachment: file name, bytes and content type (null: an .xlsx file). */
-    public record Attachment(String filename, byte[] data, String contentType) {}
+    public record Attachment(String filename, byte[] data, String contentType) {
+        // a record compares arrays by reference: these compare the file's bytes
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof Attachment other && Objects.equals(filename, other.filename) && Arrays.equals(data, other.data) && Objects.equals(contentType, other.contentType);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * (31 * Objects.hashCode(filename) + Arrays.hashCode(data)) + Objects.hashCode(contentType);
+        }
+
+        @Override
+        public String toString() {
+            return "Attachment[filename=" + filename + ", data=" + (data == null ? "null" : data.length + " bytes") + ", contentType=" + contentType + "]";
+        }
+    }
 
     private static final String XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 

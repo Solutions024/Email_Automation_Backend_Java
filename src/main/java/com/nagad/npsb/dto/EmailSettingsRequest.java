@@ -18,7 +18,7 @@ public record EmailSettingsRequest(
         @Schema(minimum = "1", maximum = "20") Integer autoFollowupMax,
         List<String> ccEmails) {
 
-    public static final Pattern EMAIL_RE = Pattern.compile("[^@\\s,;]+@[^@\\s,;]+\\.[^@\\s,;]+", Pattern.UNICODE_CHARACTER_CLASS);
+    public static final Pattern EMAIL_RE = Pattern.compile("[^@\\s,;]+@[^@\\s,;][^@\\s,;.]*\\.[^@\\s,;]+", Pattern.UNICODE_CHARACTER_CLASS);
 
     public static List<String> cleanList(List<String> value, String what) {
         List<String> cleaned = new ArrayList<>();

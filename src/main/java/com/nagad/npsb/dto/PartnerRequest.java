@@ -20,7 +20,7 @@ public record PartnerRequest(
         @Schema(defaultValue = "true") boolean isActive,
         List<PartnerEmailRequest> emails) {
 
-    private static final Pattern PARTNER_EMAIL_RE = Pattern.compile("[^@\\s]+@[^@\\s]+\\.[^@\\s]+", Pattern.UNICODE_CHARACTER_CLASS);
+    private static final Pattern PARTNER_EMAIL_RE = Pattern.compile("[^@\\s]+@[^@\\s][^@\\s.]*\\.[^@\\s]+", Pattern.UNICODE_CHARACTER_CLASS);
 
     /** One address: switched on or off; clear_problem removes the "refused" flag of an unchanged address. */
     @Schema(description = "One recipient address of a partner.")

@@ -46,7 +46,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -137,7 +136,8 @@ public class AuthService {
                        BackgroundTasks backgroundTasks,
                        @Value("${server.servlet.context-path:}") String contextPath) {
         // the browser only sends the cookies back to this path, so it includes the context path
-        String base = contextPath == null ? "" : contextPath.replaceAll("/+$", "");
+        String base = contextPath == null ? "" : contextPath;
+        while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
         this.cookiePath = base + REFRESH_COOKIE_PATH;
         this.users = users;
         this.authEvents = authEvents;
@@ -183,14 +183,24 @@ public class AuthService {
     private static final String DUMMY_HASH = hashPassword(Crypto.tokenHex(16));
 
     /** Strength rules. The frontend shows the same rules live while typing. */
+    /** What an abandoned registration leaves behind (fixed statements: no SQL is built from values). */
+    private static final List<String> DELETE_ABANDONED_ROWS = List.of(
+            "DELETE FROM email_verification_codes WHERE user_id = ?",
+            "DELETE FROM refresh_tokens WHERE user_id = ?",
+            "DELETE FROM trusted_devices WHERE user_id = ?",
+            "DELETE FROM password_reset_tokens WHERE user_id = ?");
+
+    private static final Pattern LOWERCASE = Pattern.compile("[a-z]"), UPPERCASE = Pattern.compile("[A-Z]"),
+            DIGIT = Pattern.compile("\\d", Pattern.UNICODE_CHARACTER_CLASS), SYMBOL = Pattern.compile("[^A-Za-z0-9]");
+
     public static List<String> passwordProblems(String password, String username, String email) {
         List<String> problems = new ArrayList<>();
         if (password.length() < 8) problems.add("at least 8 characters");
         if (password.length() > 128) problems.add("at most 128 characters");
-        if (!password.matches("(?s).*[a-z].*")) problems.add("a lowercase letter");
-        if (!password.matches("(?s).*[A-Z].*")) problems.add("an uppercase letter");
-        if (!Pattern.compile("\\d", Pattern.UNICODE_CHARACTER_CLASS).matcher(password).find()) problems.add("a number");
-        if (!password.matches("(?s).*[^A-Za-z0-9].*")) problems.add("a symbol");
+        if (!LOWERCASE.matcher(password).find()) problems.add("a lowercase letter");
+        if (!UPPERCASE.matcher(password).find()) problems.add("an uppercase letter");
+        if (!DIGIT.matcher(password).find()) problems.add("a number");
+        if (!SYMBOL.matcher(password).find()) problems.add("a symbol");
         String lowered = password.toLowerCase(Locale.ROOT);
         if (username != null && username.length() >= 3 && lowered.contains(username.toLowerCase(Locale.ROOT))) {
             problems.add("must not contain the username");
@@ -391,7 +401,7 @@ public class AuthService {
     boolean sendVerificationCode(User user, String email, String purpose, boolean respectCooldown) {
         EmailVerificationCode previous = latestCode(user, purpose, email);
         if (respectCooldown && previous != null
-                && Duration.between(previous.getCreatedAt(), Py.utcnow()).getSeconds() < NpsbProperties.VERIFICATION_RESEND_SECONDS) {
+                && Py.between(previous.getCreatedAt(), Py.utcnow()).getSeconds() < NpsbProperties.VERIFICATION_RESEND_SECONDS) {
             return false;
         }
         jdbc.sql("UPDATE email_verification_codes SET used_at = ? WHERE user_id = ? AND purpose = ? AND used_at IS NULL")
@@ -513,9 +523,7 @@ public class AuthService {
         else return;
         for (User user : holders) {
             if (!isAbandoned(user)) continue;
-            for (String table : new String[]{"email_verification_codes", "refresh_tokens", "trusted_devices", "password_reset_tokens"}) {
-                jdbc.sql("DELETE FROM " + table + " WHERE user_id = ?").params(user.getId()).update();
-            }
+            for (String statement : DELETE_ABANDONED_ROWS) jdbc.sql(statement).params(user.getId()).update();
             jdbc.sql("UPDATE auth_events SET user_id = NULL WHERE user_id = ?").params(user.getId()).update();
             users.delete(user);
         }
@@ -775,7 +783,7 @@ public class AuthService {
         return transaction(() -> {
             PendingRegistration pending = pendingRegistration(login);
             if (pending == null) throw new ApiException(400, "Your sign-up has expired. Please create your account again.");
-            if (Duration.between(pending.getSentAt(), Py.utcnow()).getSeconds() < NpsbProperties.VERIFICATION_RESEND_SECONDS) {
+            if (Py.between(pending.getSentAt(), Py.utcnow()).getSeconds() < NpsbProperties.VERIFICATION_RESEND_SECONDS) {
                 throw new ApiException(429, "Please wait " + NpsbProperties.VERIFICATION_RESEND_SECONDS + " seconds before asking for another code.");
             }
             if (pending.getCodesSent() >= MAX_LOGIN_CODES) {
@@ -815,7 +823,7 @@ public class AuthService {
 
             LocalDateTime now = Py.utcnow();
             if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(now)) {
-                long minutes = Duration.between(now, user.getLockedUntil()).getSeconds() / 60 + 1;
+                long minutes = Py.between(now, user.getLockedUntil()).getSeconds() / 60 + 1;
                 logEvent("login_blocked", user, "", false, "account locked");
                 throw new CommitThenRaise(423, "Too many failed attempts. This account is locked for " + minutes + " more minute(s).");
             }
@@ -895,7 +903,7 @@ public class AuthService {
             User user = users.findById(token.getUserId()).orElse(null);
 
             if (token.getRevokedAt() != null) {
-                if (token.getReplacedById() != null && Duration.between(token.getRevokedAt(), now).getSeconds() <= REFRESH_REUSE_GRACE_SECONDS) {
+                if (token.getReplacedById() != null && Py.between(token.getRevokedAt(), now).getSeconds() <= REFRESH_REUSE_GRACE_SECONDS) {
                     // Another tab refreshed a moment ago and the browser already has the new cookie
                     if (Boolean.TRUE.equals(user.getIsActive())) return tokenResponse(user);
                 }
@@ -1063,7 +1071,7 @@ public class AuthService {
                 return null;
             }
             EmailVerificationCode previous = latestCode(user, "reset", user.getEmail());
-            if (previous != null && Duration.between(previous.getCreatedAt(), Py.utcnow()).getSeconds() < NpsbProperties.VERIFICATION_RESEND_SECONDS) {
+            if (previous != null && Py.between(previous.getCreatedAt(), Py.utcnow()).getSeconds() < NpsbProperties.VERIFICATION_RESEND_SECONDS) {
                 return null;  // a code was sent less than a minute ago: it still works
             }
             jdbc.sql("UPDATE email_verification_codes SET used_at = ? WHERE user_id = ? AND purpose = 'reset' AND used_at IS NULL")

@@ -23,6 +23,19 @@ pass arguments with `--args`, e.g. `./gradlew bootRun --args="--port 8001"`.
 Dependency versions are in `gradle/libs.versions.toml` (Spring Boot manages most of them), the build in
 `build.gradle.kts`.
 
+### Dependency verification
+
+Everything the build downloads is checked before it is used: the wrapper checks the Gradle download against
+`distributionSha256Sum` (`gradle/wrapper/gradle-wrapper.properties`), and Gradle checks every library and plugin
+against the SHA-256 checksums in `gradle/verification-metadata.xml`. A file that doesn't match stops the build.
+
+After adding or upgrading a dependency (or Gradle), record the new checksums and review them in the diff:
+
+    ./gradlew --write-verification-metadata sha256 help
+
+For a new Gradle version, take `distributionSha256Sum` from
+`https://services.gradle.org/distributions/gradle-<version>-bin.zip.sha256`.
+
 ## Run
 
 1. Copy `.env.example` to `.env` (next to where you start the jar) and fill in the database,

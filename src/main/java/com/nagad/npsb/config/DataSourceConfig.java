@@ -61,7 +61,7 @@ public class DataSourceConfig {
     /** DATABASE_URL: a JDBC URL, or a SQLAlchemy-style mysql URL (mysql+pymysql://user:pass@host:port/db). */
     static String[] fromDatabaseUrl(String url) {
         if (url.startsWith("jdbc:")) return new String[]{url, null, null};
-        Matcher m = Pattern.compile("^mysql(?:\\+\\w+)?://(?:([^:@/]*)(?::([^@/]*))?@)?([^:/]+)(?::(\\d+))?/([^?]+).*$").matcher(url);
+        Matcher m = Pattern.compile("^mysql(?:\\+\\w+)?://(?:([^:@/]*)(?::([^@/]*))?@)?([^:/]+)(?::(\\d+))?/([^?]+)(?:\\?.*)?$").matcher(url);
         if (m.matches()) {
             String user = m.group(1) == null ? null : URLDecoder.decode(m.group(1), StandardCharsets.UTF_8);
             String password = m.group(2) == null ? null : URLDecoder.decode(m.group(2), StandardCharsets.UTF_8);
@@ -76,7 +76,17 @@ public class DataSourceConfig {
     static void createDatabaseIfMissing(NpsbProperties.Db db) throws SQLException {
         try (Connection c = DriverManager.getConnection(mysqlUrl(db.getHost(), db.getPort(), null), db.getUser(), db.getPassword());
              Statement st = c.createStatement()) {
-            st.execute("CREATE DATABASE IF NOT EXISTS `" + db.getName() + "` CHARACTER SET utf8mb4");
+            st.execute(createDatabaseSql(db.getName()));
         }
+    }
+
+    /** A database name can't be a ? parameter, so only plain names are accepted (letters, digits, _ $ -). */
+    private static final Pattern DATABASE_NAME = Pattern.compile("[A-Za-z0-9_$-]{1,64}");
+
+    static String createDatabaseSql(String name) {
+        if (name == null || !DATABASE_NAME.matcher(name).matches()) {
+            throw new IllegalStateException("The database name must be 1-64 letters, digits, _ $ or -, not " + name);
+        }
+        return "CREATE DATABASE IF NOT EXISTS `" + name + "` CHARACTER SET utf8mb4";
     }
 }

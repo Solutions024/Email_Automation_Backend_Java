@@ -107,7 +107,7 @@ public class AnswerService {
     /** What the writer typed, as HTML paragraphs. */
     static String textHtml(String text) {
         StringBuilder b = new StringBuilder();
-        for (String p : Py.strip(text).split("\\n\\s*\\n", -1)) {
+        for (String p : Py.strip(text).split("\\n(?:[^\\S\\n]*\\n)+", -1)) {
             if (Py.strip(p).isEmpty()) continue;
             String paragraph = Py.strip(p, "\n");
             b.append("<p style=\"margin:0 0 12px\">").append(Py.escape(paragraph).replace("\n", "<br/>")).append("</p>");

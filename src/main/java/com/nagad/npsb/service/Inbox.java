@@ -64,6 +64,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -216,12 +217,17 @@ public class Inbox {
         return new ArrayList<>(out);
     }
 
-    private static final Pattern SUBJECT_PREFIX = Pattern.compile("^\\s*((re|fw|fwd|aw|sv|wg|antw)\\s*(\\[\\d+\\])?\\s*:\\s*)+",
+    /** One reply / forward prefix ("Re:", "FW [2]:"...); normSubject removes them one after another. */
+    private static final Pattern SUBJECT_PREFIX = Pattern.compile("\\s*(?:re|fwd?|aw|sv|wg|antw)\\s*(?:\\[\\d+\\]\\s*)?:\\s*",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CHARACTER_CLASS);
     private static final Pattern SPACES = Pattern.compile("\\s+", Pattern.UNICODE_CHARACTER_CLASS);
 
     static String normSubject(String subject) {
-        String s = SUBJECT_PREFIX.matcher(subject == null ? "" : subject).replaceFirst("");
+        String s = subject == null ? "" : subject;
+        Matcher prefix = SUBJECT_PREFIX.matcher(s);
+        int start = 0;
+        while (start < s.length() && prefix.region(start, s.length()).lookingAt()) start = prefix.end();
+        s = s.substring(start);
         return Py.strip(SPACES.matcher(s).replaceAll(" ")).toLowerCase(java.util.Locale.ROOT);
     }
 
@@ -450,11 +456,11 @@ public class Inbox {
 
     // ---------------------------------------------------------------- reading the message
 
-    private static final Pattern STYLE = Pattern.compile("(?is)<(style|script|head)\\b.*?</\\1>");
     private static final Pattern TAG = Pattern.compile("<[^>]+>");
+    private static final List<String> HIDDEN_BLOCKS = List.of("style", "script", "head");
 
     static String textOf(String html) {
-        String s = STYLE.matcher(html).replaceAll(" ");
+        String s = withoutHiddenBlocks(html);
         s = TAG.matcher(s).replaceAll(" ");
         return Py.strip(SPACES.matcher(Parser.unescapeEntities(s, false)).replaceAll(" "));
     }
@@ -618,13 +624,105 @@ public class Inbox {
         return new Content(Py.cut(bodyHtml, MAX_BODY_CHARS), Py.cut(snippet, 300), attachments);
     }
 
+    /**
+     * The HTML with each &lt;style&gt;, &lt;script&gt; and &lt;head&gt; element (up to its closing tag, any letter case)
+     * replaced by a space. A single pass: a block whose closing tag is missing is left as it is.
+     */
+    static String withoutHiddenBlocks(String html) {
+        StringBuilder out = new StringBuilder(html.length());
+        Set<String> unclosed = new HashSet<>();  // no closing tag after this point: later blocks of that kind stay too
+        int copied = 0;
+        int at = html.indexOf('<');
+        while (at >= 0) {
+            int next = at + 1;
+            String name = blockAt(html, next);
+            if (name != null && !unclosed.contains(name)) {
+                int end = closingTag(html, next + name.length(), name);
+                if (end < 0) {
+                    unclosed.add(name);
+                } else {
+                    out.append(html, copied, at).append(' ');
+                    copied = end;
+                    next = end;
+                }
+            }
+            at = html.indexOf('<', next);
+        }
+        return out.append(html, copied, html.length()).toString();
+    }
+
+    /** The hidden-block element name starting at index i (followed by a non-word character), or null. */
+    private static String blockAt(String html, int i) {
+        for (String name : HIDDEN_BLOCKS) {
+            int after = i + name.length();
+            if (asciiMatches(html, i, name) && (after == html.length() || !isWordChar(html.charAt(after)))) return name;
+        }
+        return null;
+    }
+
+    /** The index just after the first "&lt;/name&gt;" at or after from, or -1. */
+    private static int closingTag(String html, int from, String name) {
+        for (int i = html.indexOf("</", from); i >= 0; i = html.indexOf("</", i + 2)) {
+            int after = i + 2 + name.length();
+            if (asciiMatches(html, i + 2, name) && after < html.length() && html.charAt(after) == '>') return after + 1;
+        }
+        return -1;
+    }
+
+    /** text at i is the lowercase ASCII word, ignoring ASCII letter case. */
+    private static boolean asciiMatches(String text, int i, String word) {
+        if (i + word.length() > text.length()) return false;
+        for (int k = 0; k < word.length(); k++) {
+            char c = text.charAt(i + k);
+            if (c >= 'A' && c <= 'Z') c = (char) (c + ('a' - 'A'));
+            if (c != word.charAt(k)) return false;
+        }
+        return true;
+    }
+
+    private static boolean isWordChar(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+    }
+
     // ---------------------------------------------------------------- where messages come from
 
     /** One message to look at: its key (IMAP UID), headers, size. */
-    record Listed(Object key, byte[] headerBytes, int size) {}
+    record Listed(Object key, byte[] headerBytes, int size) {
+        // a record compares arrays by reference: these compare the bytes
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof Listed other && Objects.equals(key, other.key) && Arrays.equals(headerBytes, other.headerBytes) && size == other.size;
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * (31 * Objects.hashCode(key) + Arrays.hashCode(headerBytes)) + Integer.hashCode(size);
+        }
+
+        @Override
+        public String toString() {
+            return "Listed[key=" + key + ", headerBytes=" + (headerBytes == null ? "null" : headerBytes.length + " bytes") + ", size=" + size + "]";
+        }
+    }
 
     /** What was downloaded: raw message, whether it is whole (or headers only), when it arrived. */
-    record Fetched(byte[] raw, boolean whole, LocalDateTime arrived) {}
+    record Fetched(byte[] raw, boolean whole, LocalDateTime arrived) {
+        // a record compares arrays by reference: these compare the bytes
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof Fetched other && Arrays.equals(raw, other.raw) && whole == other.whole && Objects.equals(arrived, other.arrived);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * (31 * Arrays.hashCode(raw) + Boolean.hashCode(whole)) + Objects.hashCode(arrived);
+        }
+
+        @Override
+        public String toString() {
+            return "Fetched[raw=" + (raw == null ? "null" : raw.length + " bytes") + ", whole=" + whole + ", arrived=" + arrived + "]";
+        }
+    }
 
     interface Source {
         String localId(Object key);
@@ -848,7 +946,7 @@ public class Inbox {
                 for (String a : Py.splitOn(r.to() == null ? "" : r.to(), ",")) if (!Py.strip(a).isEmpty()) to.add(Py.strip(a).toLowerCase(java.util.Locale.ROOT));
                 for (int i = 0; i < copies.size(); i++) {
                     Copy c = copies.get(i);
-                    Duration gap = Duration.between(c.sentAt(), r.at()).abs();
+                    Duration gap = Py.between(c.sentAt(), r.at()).abs();
                     boolean sharesRecipient = to.stream().anyMatch(c.recipients()::contains);
                     if (c.subject().equals(sameText(r.subject())) && sharesRecipient && gap.compareTo(RECOVER_WINDOW) <= 0) {
                         pairs.add(new Object[]{gap, r, i});
@@ -1157,12 +1255,15 @@ public class Inbox {
         });
     }
 
+    private static final String OPEN_ISSUE = "SELECT i FROM InboxIssue i WHERE i.mailbox = :mailbox AND i.resolvedAt IS NULL "
+            + "AND i.uidvalidity = :uidvalidity AND i.uid = :uid AND i.remoteId = :remoteId";
+    private static final String OPEN_ISSUE_NO_REMOTE_ID = "SELECT i FROM InboxIssue i WHERE i.mailbox = :mailbox AND i.resolvedAt IS NULL "
+            + "AND i.uidvalidity = :uidvalidity AND i.uid = :uid AND i.remoteId IS NULL";
+
     /** The unresolved issue of this message, or null. */
     private InboxIssue openIssue(String mailbox, Map<String, Object> ident) {
         boolean noRemoteId = ident.get("remote_id") == null;
-        var query = entityManager.createQuery("SELECT i FROM InboxIssue i WHERE i.mailbox = :mailbox AND i.resolvedAt IS NULL "
-                        + "AND i.uidvalidity = :uidvalidity AND i.uid = :uid "
-                        + (noRemoteId ? "AND i.remoteId IS NULL" : "AND i.remoteId = :remoteId"), InboxIssue.class)
+        var query = entityManager.createQuery(noRemoteId ? OPEN_ISSUE_NO_REMOTE_ID : OPEN_ISSUE, InboxIssue.class)
                 .setParameter("mailbox", mailbox)
                 .setParameter("uidvalidity", ident.get("uidvalidity"))
                 .setParameter("uid", ident.get("uid"))

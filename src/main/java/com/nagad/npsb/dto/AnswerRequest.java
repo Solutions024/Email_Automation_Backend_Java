@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 @Schema(description = "An answer to a partner's reply: recipients, CC, subject and the text (plain text, paragraphs).")
 public record AnswerRequest(List<String> to, @Schema(defaultValue = "[]") List<String> cc, String subject, String text) {
 
-    private static final Pattern ADDRESS_RE = Pattern.compile("[^@\\s,;]+@[^@\\s,;]+\\.[^@\\s,;]+", Pattern.UNICODE_CHARACTER_CLASS);
+    private static final Pattern ADDRESS_RE = Pattern.compile("[^@\\s,;]+@[^@\\s,;][^@\\s,;.]*\\.[^@\\s,;]+", Pattern.UNICODE_CHARACTER_CLASS);
 
     private static List<String> checkAddresses(List<String> value) {
         List<String> cleaned = new ArrayList<>();

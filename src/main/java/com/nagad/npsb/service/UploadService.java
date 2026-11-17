@@ -18,7 +18,6 @@ import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -299,6 +298,6 @@ public class UploadService {
 
     /** round(x, 2) (the exact binary value, rounded like Python). */
     static double round2(double x) {
-        return new BigDecimal(x).setScale(2, RoundingMode.HALF_EVEN).doubleValue();
+        return Py.exact(x).setScale(2, RoundingMode.HALF_EVEN).doubleValue();
     }
 }

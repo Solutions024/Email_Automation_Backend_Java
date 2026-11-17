@@ -11,7 +11,7 @@ public final class AccountFields {
     private AccountFields() {}
 
     private static final Pattern USERNAME_RE = Pattern.compile("[a-z0-9._-]{3,30}");
-    private static final Pattern EMAIL_RE = Pattern.compile("[^@\\s]+@[^@\\s]+\\.[^@\\s]+", Pattern.UNICODE_CHARACTER_CLASS);
+    private static final Pattern EMAIL_RE = Pattern.compile("[^@\\s]+@[^@\\s][^@\\s.]*\\.[^@\\s]+", Pattern.UNICODE_CHARACTER_CLASS);
 
     public static String cleanFullName(String v) {
         v = Py.squash(v);

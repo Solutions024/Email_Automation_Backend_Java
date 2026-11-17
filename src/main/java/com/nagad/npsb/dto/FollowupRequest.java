@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 @Schema(description = "A follow-up email: recipients, CC, subject and HTML body.")
 public record FollowupRequest(List<String> to, @Schema(defaultValue = "[]") List<String> cc, String subject, String bodyHtml) {
 
-    private static final Pattern FOLLOWUP_ADDRESS = Pattern.compile("[^@\\s,;]+@[^@\\s,;]+\\.[^@\\s,;]+", Pattern.UNICODE_CHARACTER_CLASS);
+    private static final Pattern FOLLOWUP_ADDRESS = Pattern.compile("[^@\\s,;]+@[^@\\s,;][^@\\s,;.]*\\.[^@\\s,;]+", Pattern.UNICODE_CHARACTER_CLASS);
 
     static List<String> cleanAddresses(List<String> value) {
         List<String> cleaned = new ArrayList<>();

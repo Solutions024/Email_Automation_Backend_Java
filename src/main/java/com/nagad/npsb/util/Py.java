@@ -1,9 +1,11 @@
 package com.nagad.npsb.util;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -167,6 +169,14 @@ public final class Py {
         return LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS);
     }
 
+    /**
+     * to - from for two datetimes stored without a time zone (both UTC, or both local time): computed on Instants,
+     * so the result is a real elapsed time. Dhaka has no daylight saving time, so local times convert unambiguously.
+     */
+    public static Duration between(LocalDateTime from, LocalDateTime to) {
+        return Duration.between(from.toInstant(ZoneOffset.UTC), to.toInstant(ZoneOffset.UTC));
+    }
+
     /** datetime.isoformat() */
     public static String iso(LocalDateTime d) {
         if (d == null) return null;
@@ -226,9 +236,31 @@ public final class Py {
 
     // ---------------------------------------------------------------- numbers
 
+    /**
+     * The exact decimal value of a double (what Python's Decimal(float) gives), e.g. 0.1 is
+     * 0.1000000000000000055511151231257827021181583404541015625. BigDecimal.valueOf(d) would round it instead.
+     */
+    public static BigDecimal exact(double d) {
+        if (Double.isNaN(d) || Double.isInfinite(d)) throw new NumberFormatException("Infinite or NaN");
+        if (d == 0) return BigDecimal.ZERO;
+        long bits = Double.doubleToLongBits(d);
+        int exponent = (int) ((bits >> 52) & 0x7ff);
+        long mantissa = bits & ((1L << 52) - 1);
+        if (exponent == 0) exponent = 1;           // subnormal
+        else mantissa |= 1L << 52;                  // the implicit leading 1
+        exponent -= 1075;                           // d = mantissa * 2^exponent
+        while ((mantissa & 1) == 0 && exponent < 0) {  // smallest scale, as new BigDecimal(double) gives
+            mantissa >>= 1;
+            exponent++;
+        }
+        BigInteger m = BigInteger.valueOf(d < 0 ? -mantissa : mantissa);
+        if (exponent >= 0) return new BigDecimal(m.shiftLeft(exponent));
+        return new BigDecimal(m.multiply(BigInteger.valueOf(5).pow(-exponent)), -exponent);  // m / 2^k = m * 5^k / 10^k
+    }
+
     /** f"{value:,.2f}" (exact binary value, rounded half to even, like Python). */
     public static String money(double value) {
-        BigDecimal exact = new BigDecimal(value).setScale(2, RoundingMode.HALF_EVEN);
+        BigDecimal exact = exact(value).setScale(2, RoundingMode.HALF_EVEN);
         DecimalFormat format = new DecimalFormat("#,##0.00", DecimalFormatSymbols.getInstance(Locale.ROOT));
         return format.format(exact);
     }

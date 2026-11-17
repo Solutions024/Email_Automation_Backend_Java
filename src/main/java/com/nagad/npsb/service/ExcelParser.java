@@ -206,7 +206,7 @@ public final class ExcelParser {
                     LocalDateTime t = LocalDateTime.ofInstant(d.toInstant(), java.time.ZoneId.systemDefault());
                     return Py.iso(t).replace('T', ' ');
                 }
-                if (v == Math.rint(v) && !Double.isInfinite(v)) return new BigDecimal(v).toBigInteger().toString();
+                if (v == Math.rint(v) && !Double.isInfinite(v)) return Py.exact(v).toBigInteger().toString();
                 return Py.floatRepr(v);
             }
             default:
