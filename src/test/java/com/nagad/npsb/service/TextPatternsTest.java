@@ -60,9 +60,38 @@ class TextPatternsTest {
     }
 
     @Test
+    void autoReplySubjects() {
+        for (String auto : List.of("Automatic reply: case 1", "  automatic reply", "Auto reply", "Auto-Reply: x", "AUTOREPLY",
+                "autoreply: x", "Automaticreply", "Automatic-reply", "Out of office", "Out of the Office: back Monday",
+                "Auto: away", "\tauto: away")) {
+            assertTrue(Inbox.AUTO_SUBJECT.matcher(auto).find(), auto);
+        }
+        for (String human : List.of("Re: case 1", "Re: Automatic reply", "autos reply", "auto  reply", "Out of stock",
+                "out of  office", "automatic: x", "auto", "")) {
+            assertFalse(Inbox.AUTO_SUBJECT.matcher(human).find(), human);
+        }
+    }
+
+    @Test
     void answerParagraphs() {
         assertEquals("<p style=\"margin:0 0 12px\">one</p><p style=\"margin:0 0 12px\">two<br/>three</p>",
                 AnswerService.textHtml("one\n \n\t\ntwo\nthree"));
+    }
+
+    @Test
+    void paragraphBreaksSplitAsBefore() {
+        java.util.regex.Pattern before = java.util.regex.Pattern.compile("\\n(?:[^\\S\\n]*\\n)+");
+        for (String text : List.of("a", "a\nb", "a\n\nb", "a\n \n\t\nb", "a\n\n\n\n  b", "a\n \n \nb\n\n\nc",
+                "a\r\n\r\nb", "a\n\n", "\n\na", "a \n \n b", "a\n \nb", "a\n\f\n\u000b\nb", "a\n  \n  ")) {
+            assertEquals(List.of(before.split(text, -1)), List.of(AnswerService.PARAGRAPH_BREAK.split(text, -1)), text);
+        }
+    }
+
+    @Test
+    @Timeout(5)
+    void manyBlankLinesDoNotOverflowTheStack() {
+        String text = "one" + "\n \t".repeat(200_000) + "\ntwo";
+        assertEquals("<p style=\"margin:0 0 12px\">one</p><p style=\"margin:0 0 12px\">two</p>", AnswerService.textHtml(text));
     }
 
     @Test

@@ -63,10 +63,79 @@ public final class AppLog {
 
     // ---------------------------------------------------------------- export to CSV / JSON
 
-    private static final Pattern LINE = Pattern.compile(
-            "^(\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3}) (\\S+)\\s+\\[(.*?)\\] (.*)$");
+    /** The start of a log line, up to the "[" before the thread: "2026-11-17 15:04:32.039 INFO    [". */
+    private static final Pattern LINE_START = Pattern.compile(
+            "(\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3}) (\\S++)\\s++\\[");
     private static final Pattern TAG = Pattern.compile("^\\[([A-Z-]+)\\] (.*)$");
-    private static final Pattern PAIR = Pattern.compile("([a-z_]+)=(\"[^\"]*\"|\\S+)");
+
+    /**
+     * A log line as {time, level, thread, message}, or null when it isn't one (a stack trace line). The thread ends at
+     * the first "] ". Same answers as matches() with ^(time) (\S+)\s+\[(.*?)\] (.*)$, but read in one pass: like ".",
+     * the thread and message can't hold a line separator, not even at the very end.
+     */
+    static String[] parseLine(String line) {
+        Matcher m = LINE_START.matcher(line);
+        if (!m.lookingAt()) return null;
+        String rest = line.substring(m.end());
+        for (int i = 0; i < rest.length(); i++) if (isLineSeparator(rest.charAt(i))) return null;
+        int close = rest.indexOf("] ");
+        if (close < 0) return null;
+        return new String[]{m.group(1), m.group(2), rest.substring(0, close), rest.substring(close + 2)};
+    }
+
+    /** What "." doesn't match (without DOTALL). */
+    private static boolean isLineSeparator(char c) {
+        return c == '\n' || c == '\r' || c == '\u0085' || c == '\u2028' || c == '\u2029';
+    }
+
+    /**
+     * The key=value pairs of a tagged line, left to right, as {key, value} (a quoted value keeps its quotes).
+     * Same pairs as finding ([a-z_]+)=("[^"]*"|\S+) again and again, in one pass: a key starts where a run of
+     * a-z / _ starts (starting later in the run could never match when the start didn't), and once no closing quote
+     * is left, later quoted values don't search for one again.
+     */
+    static List<String[]> pairs(String text) {
+        List<String[]> out = new ArrayList<>();
+        int n = text.length(), noQuoteFrom = n, i = 0;
+        while (i < n) {
+            if (!isKeyChar(text.charAt(i))) {
+                i++;
+                continue;
+            }
+            int keyEnd = i;
+            while (keyEnd < n && isKeyChar(text.charAt(keyEnd))) keyEnd++;
+            if (keyEnd >= n || text.charAt(keyEnd) != '=') {
+                i = keyEnd;
+                continue;
+            }
+            int start = keyEnd + 1, end = -1;
+            if (start < n && text.charAt(start) == '"' && start + 1 < noQuoteFrom) {  // "quoted value"
+                int quote = text.indexOf('"', start + 1);
+                if (quote >= 0) end = quote + 1;
+                else noQuoteFrom = start + 1;
+            }
+            if (end < 0) {  // otherwise: up to the next whitespace
+                end = start;
+                while (end < n && !isSpace(text.charAt(end))) end++;
+            }
+            if (end == start) {  // "key=" then a space or the end: no pair here
+                i = keyEnd + 1;
+                continue;
+            }
+            out.add(new String[]{text.substring(i, keyEnd), text.substring(start, end)});
+            i = end;
+        }
+        return out;
+    }
+
+    private static boolean isKeyChar(char c) {
+        return (c >= 'a' && c <= 'z') || c == '_';
+    }
+
+    /** \s without UNICODE_CHARACTER_CLASS. */
+    private static boolean isSpace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r';
+    }
 
     /**
      * Export the log files to a CSV and a JSON file: APP_LOG_DIR/export/app-log.csv and app-log.json
@@ -92,8 +161,8 @@ public final class AppLog {
         Set<String> keys = new TreeSet<>();
         for (Path file : files) {
             for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
-                Matcher m = LINE.matcher(line);
-                if (!m.matches()) {  // a stack trace line: belongs to the entry above
+                String[] parsed = parseLine(line);
+                if (parsed == null) {  // a stack trace line: belongs to the entry above
                     if (!rows.isEmpty() && !line.isBlank()) {
                         Map<String, String> last = rows.get(rows.size() - 1);
                         last.merge("trace", line.strip(), (a, b) -> a + " | " + b);
@@ -101,19 +170,18 @@ public final class AppLog {
                     continue;
                 }
                 Map<String, String> row = new LinkedHashMap<>();
-                row.put("time", m.group(1));
-                row.put("level", m.group(2));
-                row.put("thread", m.group(3));
-                String message = m.group(4);
+                row.put("time", parsed[0]);
+                row.put("level", parsed[1]);
+                row.put("thread", parsed[2]);
+                String message = parsed[3];
                 Matcher t = TAG.matcher(message);
                 if (t.matches()) {
                     row.put("tag", t.group(1));
-                    Matcher kv = PAIR.matcher(t.group(2));
-                    while (kv.find()) {
-                        String v = kv.group(2);
+                    for (String[] kv : pairs(t.group(2))) {
+                        String v = kv[1];
                         if (v.length() >= 2 && v.startsWith("\"") && v.endsWith("\"")) v = v.substring(1, v.length() - 1);
-                        row.put(kv.group(1), v);
-                        keys.add(kv.group(1));
+                        row.put(kv[0], v);
+                        keys.add(kv[0]);
                     }
                 } else {
                     row.put("tag", "");

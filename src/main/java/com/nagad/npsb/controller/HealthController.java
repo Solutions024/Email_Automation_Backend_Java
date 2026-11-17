@@ -17,6 +17,7 @@ import java.sql.Connection;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -109,7 +110,13 @@ public class HealthController {
             } catch (TimeoutException e) {
                 check.cancel(true);
                 problem = "the database did not answer within " + DB_TIMEOUT_MS + " ms";
-            } catch (Exception e) {
+            } catch (InterruptedException e) {
+                // the request thread is being stopped (e.g. shutdown): keep its interrupted status, and don't cache
+                // this answer, since it says nothing about the database
+                check.cancel(true);
+                Thread.currentThread().interrupt();
+                return "the health check was interrupted";
+            } catch (ExecutionException e) {
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
                 problem = "database error: " + cause.getMessage();
             }

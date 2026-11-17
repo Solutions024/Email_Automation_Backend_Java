@@ -10,6 +10,39 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ExcelParserTest {
 
+    /** The regular expression withoutDigitSeparators replaced, kept as the reference. */
+    private static final java.util.regex.Pattern OLD_DECIMAL =
+            java.util.regex.Pattern.compile("[+-]?\\d+(_\\d+)*(\\.\\d*(_\\d+)*)?([eE][+-]?\\d+)?|[+-]?\\.\\d+([eE][+-]?\\d+)?"); // NOSONAR the old regex on purpose, only given short strings
+
+    private static String oldWithoutDigitSeparators(String t) {
+        return OLD_DECIMAL.matcher(t).matches() ? t.replace("_", "") : t;
+    }
+
+    @Test
+    void digitSeparatorsAreRemovedAsBefore() {
+        for (String t : List.of("1_000", "1_000.000_1", "-1_0", "+1_0e5", "1._5", "1.5_5e-3", "1_000.", "12", "1.5",
+                "_1", "1_", "1__0", "1_.5", "._5", ".5_0", "1e5_0", "1e_5", "+_1", "1_a", "1_0E5", "1_0_0_0", "", "_",
+                "1._", "1.__5", "١_٠", "1_000x")) {
+            assertEquals(oldWithoutDigitSeparators(t), ExcelParser.withoutDigitSeparators(t), t);
+        }
+        java.util.Random random = new java.util.Random(3);
+        String alphabet = "0129__.._eE+-x ";
+        for (int run = 0; run < 100_000; run++) {
+            StringBuilder b = new StringBuilder();
+            for (int k = 1 + random.nextInt(12); k > 0; k--) b.append(alphabet.charAt(random.nextInt(alphabet.length())));
+            String t = b.toString();
+            assertEquals(oldWithoutDigitSeparators(t), ExcelParser.withoutDigitSeparators(t), t);
+        }
+    }
+
+    @Test
+    @org.junit.jupiter.api.Timeout(5)
+    void longSeparatedNumbersDoNotOverflowTheStack() {
+        String t = "1" + "_1".repeat(200_000);
+        assertEquals("1".repeat(200_001), ExcelParser.withoutDigitSeparators(t));
+        assertEquals(t + "x", ExcelParser.withoutDigitSeparators(t + "x"));
+    }
+
     static final String HEADER = "NPSB_TXN_RRN,APPROVAL_DATE,APPROVAL_DATETIME,TXN_TYPE,TXN_ID,FIRST_TXN_STATUS_NAME,"
             + "TXN_AMOUNT,FROMAC_NAME,TOAC_TYPE,ORG_TXN_STAN,KEY_ORG_NM,NPSB_ORG_CODE,TXN_DIRECTION\n";
     static final String ROW = ",2026-11-01,2026-11-01 10:15:00,Fund Transfer,T%s,Success,500.00,Ana,Account,123456,Test Bank,000123,%s\n";

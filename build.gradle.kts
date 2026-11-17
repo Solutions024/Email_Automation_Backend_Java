@@ -1,7 +1,9 @@
 plugins {
     java
+    jacoco
     alias(libs.plugins.spring.boot)
     alias(libs.plugins.spring.dependency.management)
+    id("org.sonarqube") version "7.5.0.8588"
 }
 
 group = "com.nagad"
@@ -100,6 +102,20 @@ val contractTest = tasks.register<Test>("contractTest") {
     shouldRunAfter(tasks.test)
 }
 tasks.check { dependsOn(contractTest) }
+
+// test coverage: build/reports/jacoco/test/ (XML for SonarQube, HTML to read), from the unit and contract tests
+tasks.jacocoTestReport {
+    dependsOn(tasks.test, contractTest)
+    executionData(tasks.test.get(), contractTest.get())  // build/jacoco/test.exec and contractTest.exec
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+tasks.test { finalizedBy(tasks.jacocoTestReport) }
+
+// ./gradlew sonar: analyse with the coverage of a fresh test run
+tasks.named("sonar") { dependsOn(tasks.jacocoTestReport) }
 
 // one runnable jar with all dependencies: build/libs/npsb-backend.jar
 tasks.bootJar {

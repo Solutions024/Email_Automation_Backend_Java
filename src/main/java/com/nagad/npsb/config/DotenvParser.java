@@ -19,7 +19,13 @@ import java.util.regex.Pattern;
 public final class DotenvParser {
     private DotenvParser() {}
 
-    private static final Pattern LINE = Pattern.compile("^\\s*(?:export\\s+)?([A-Za-z_][A-Za-z0-9_.]*)\\s*=\\s*(.*)$");
+    /**
+     * [export] KEY = value. Possessive quantifiers (*+, ++): what each one takes can't be part of what follows it
+     * (a key never starts with a space, a key is followed by a space or =), so giving characters back could never
+     * help a match, and the engine doesn't try: one pass over the line instead of retrying every split of its spaces.
+     * The optional "export " still falls back, so "export=1" sets the key export.
+     */
+    static final Pattern LINE = Pattern.compile("^\\s*+(?:export\\s++)?([A-Za-z_][A-Za-z0-9_.]*+)\\s*+=\\s*+(.*)$");
     private static final Pattern VARIABLE = Pattern.compile("\\$\\{([^}:]+)(?::-([^}]*))?}");
 
     /**

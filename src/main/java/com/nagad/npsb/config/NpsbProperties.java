@@ -1,13 +1,12 @@
 package com.nagad.npsb.config;
 
+import com.nagad.npsb.util.Crypto;
 import com.nagad.npsb.util.Py;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 
 /**
@@ -59,7 +58,8 @@ public class NpsbProperties {
     /** Startup values of the settings that can be changed on the System Settings page. */
     private final Live live = new Live();
 
-    private final String generatedJwtSecret = randomToken(48);
+    /** Used when JWT_SECRET is not set: 48 random bytes from the shared SecureRandom (Crypto.RANDOM). */
+    private final String generatedJwtSecret = Crypto.tokenUrlsafe(48);
 
     @Getter
     @Setter
@@ -152,11 +152,5 @@ public class NpsbProperties {
     /** ADMIN_EMAIL, trimmed and lower case. */
     public String adminEmailAddress() {
         return adminEmail == null ? "" : adminEmail.strip().toLowerCase();
-    }
-
-    private static String randomToken(int bytes) {
-        byte[] b = new byte[bytes];
-        new SecureRandom().nextBytes(b);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
     }
 }

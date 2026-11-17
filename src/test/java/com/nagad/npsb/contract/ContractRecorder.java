@@ -270,7 +270,7 @@ final class ContractRecorder {
                 List<String> values = r.headers.allValues(n);
                 if (values.isEmpty()) continue;
                 String v = String.join(", ", values);
-                if (n.equals("Content-Type")) v = v.toLowerCase(Locale.ROOT).replaceAll("\\s*;\\s*", ";");
+                if (n.equals("Content-Type")) v = tightSemicolons(v.toLowerCase(Locale.ROOT));
                 if (n.equals("Retry-After")) v = "<n>";
                 h.put(n, norm.text(v));
             }
@@ -317,6 +317,29 @@ final class ContractRecorder {
         ArrayNode out = F.arrayNode();
         items.forEach(out::add);
         return out;
+    }
+
+    /**
+     * "text/html ; charset=utf-8" -> "text/html;charset=utf-8": the whitespace around each ";" removed. Same as
+     * replaceAll("\\s*;\\s*", ";") in one pass (that one rescans a long run of spaces from each of its characters).
+     */
+    static String tightSemicolons(String v) {
+        String[] parts = v.split(";", -1);
+        StringBuilder b = new StringBuilder(v.length());
+        for (int i = 0; i < parts.length; i++) {
+            String p = parts[i];
+            int start = 0, end = p.length();
+            if (i > 0) while (start < end && isSpace(p.charAt(start))) start++;              // after a ";"
+            if (i < parts.length - 1) while (end > start && isSpace(p.charAt(end - 1))) end--;  // before a ";"
+            if (i > 0) b.append(';');
+            b.append(p, start, end);
+        }
+        return b.toString();
+    }
+
+    /** \s without UNICODE_CHARACTER_CLASS. */
+    private static boolean isSpace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r';
     }
 
     private static String canonical(String header) {

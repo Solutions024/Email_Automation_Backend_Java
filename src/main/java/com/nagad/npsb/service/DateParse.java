@@ -73,7 +73,67 @@ public final class DateParse {
     private static final Pattern ISO = Pattern.compile(
             "^(\\d{4})-(\\d{1,2})-(\\d{1,2})(?:[T ](\\d{1,2}):(\\d{2})(?::(\\d{2})(?:[.,](\\d{1,9}))?)?)?\\s*(?:Z|[+-]\\d{2}(?::?\\d{2})?)?$");
     private static final Pattern COMPACT = Pattern.compile("^(\\d{4})(\\d{2})(\\d{2})$");
-    private static final Pattern TOKEN = Pattern.compile("\\d+(?::\\d+)+(?:[.,]\\d+)?|\\d+(?:\\.\\d+)?|[A-Za-z]+|[^\\sA-Za-z\\d]");
+
+    /**
+     * The pieces of a free-text date, left to right (whitespace between them dropped). Same pieces as the regex
+     * \d+(?::\d+)+(?:[.,]\d+)?|\d+(?:\.\d+)?|[A-Za-z]+|[^\sA-Za-z\d], read in one pass: no backtracking over long
+     * digit runs and no recursion on long 1:2:3:... chains.
+     *   a time:   digits, one or more ":digits", then an optional ".digits" or ",digits"   12:30, 12:30:15.250
+     *   a number: digits, then an optional ".digits"                                      2026, 02.09
+     *   a word:   ASCII letters                                                             Sep, PM
+     *   anything else that is not whitespace, one character at a time                        - / , .
+     */
+    static List<String> tokens(String s) {
+        List<String> out = new ArrayList<>();
+        int n = s.length(), i = 0;
+        while (i < n) {
+            char c = s.charAt(i);
+            int start = i;
+            if (isSpace(c)) {
+                i++;
+                continue;
+            }
+            if (isDigit(c)) {
+                i = digitsEnd(s, i);
+                if (followedByDigits(s, i, ':')) {  // a time
+                    while (followedByDigits(s, i, ':')) i = digitsEnd(s, i + 1);
+                    if (followedByDigits(s, i, '.') || followedByDigits(s, i, ',')) i = digitsEnd(s, i + 1);
+                } else if (followedByDigits(s, i, '.')) {  // a number with one decimal part
+                    i = digitsEnd(s, i + 1);
+                }
+            } else if (isLetter(c)) {
+                while (i < n && isLetter(s.charAt(i))) i++;
+            } else {
+                i++;
+            }
+            out.add(s.substring(start, i));
+        }
+        return out;
+    }
+
+    /** \s without UNICODE_CHARACTER_CLASS. */
+    private static boolean isSpace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r';
+    }
+
+    /** \d without UNICODE_CHARACTER_CLASS: ASCII digits only. */
+    private static boolean isDigit(char c) {
+        return c >= '0' && c <= '9';
+    }
+
+    private static boolean isLetter(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }
+
+    private static int digitsEnd(String s, int i) {
+        while (i < s.length() && isDigit(s.charAt(i))) i++;
+        return i;
+    }
+
+    /** s[i] is `separator` and a digit comes right after it. */
+    private static boolean followedByDigits(String s, int i, char separator) {
+        return i + 1 < s.length() && s.charAt(i) == separator && isDigit(s.charAt(i + 1));
+    }
 
     /** pandas.to_datetime(text, errors="coerce", dayfirst=...): the date/time, or null (NaT). */
     public static LocalDateTime toDatetime(String text, boolean dayfirst) {
@@ -114,13 +174,7 @@ public final class DateParse {
         int hour = 0, minute = 0, second = 0, nano = 0;
         boolean hasTime = false;
         String ampm = null;
-        Matcher m = TOKEN.matcher(s);
-        int consumed = 0;
-        while (m.find()) {
-            String gap = s.substring(consumed, m.start());
-            if (!gap.isBlank()) return null;
-            consumed = m.end();
-            String tok = m.group();
+        for (String tok : tokens(s)) {  // every character is in a token or is whitespace
             String low = tok.toLowerCase(Locale.ROOT);
             if (tok.contains(":")) {
                 if (hasTime) return null;
@@ -160,7 +214,6 @@ public final class DateParse {
                 return null;  // unknown word
             }
         }
-        if (!s.substring(consumed).isBlank()) return null;
         if (ampm != null) {
             if (!hasTime || hour > 12) return null;
             hour = hour % 12 + (ampm.equals("p") ? 12 : 0);

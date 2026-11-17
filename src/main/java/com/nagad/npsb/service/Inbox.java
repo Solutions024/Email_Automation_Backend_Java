@@ -357,8 +357,9 @@ public class Inbox {
         }
     }
 
-    private static final Pattern AUTO_SUBJECT = Pattern.compile(
-            "^\\s*(automatic reply|auto(matic)?[- ]?reply|out of (the )?office|autoreply|auto:)", Pattern.CASE_INSENSITIVE);
+    /** Auto reply / Auto-Reply / Autoreply / Automatic reply, Out of office / Out of the office, Auto: ... */
+    static final Pattern AUTO_SUBJECT = Pattern.compile(
+            "^\\s*(?:auto(?:matic)?[- ]?reply|out of (?:the )?office|auto:)", Pattern.CASE_INSENSITIVE);
     private static final Set<String> BOUNCE_SENDERS = Set.of("mailer-daemon", "postmaster");
 
     // ---------------------------------------------------------------- headers

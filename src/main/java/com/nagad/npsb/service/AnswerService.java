@@ -104,10 +104,17 @@ public class AnswerService {
         return Py.map("to", List.of(r.getFromEmail()), "cc", Py.csv(d != null ? d.getCcEmails() : ""), "subject", Py.cut(subject, 300));
     }
 
+    /**
+     * Between two paragraphs: a line break, then one or more lines holding only spaces or tabs. Same as
+     * \n(?:[^\S\n]*\n)+, but without repeating a group (which recurses once per line and overflows the stack on
+     * thousands of blank lines): after the first blank line, \s*\n takes everything up to the run's last line break.
+     */
+    static final Pattern PARAGRAPH_BREAK = Pattern.compile("\\n[^\\S\\n]*+\\n(?:\\s*\\n)?");
+
     /** What the writer typed, as HTML paragraphs. */
     static String textHtml(String text) {
         StringBuilder b = new StringBuilder();
-        for (String p : Py.strip(text).split("\\n(?:[^\\S\\n]*\\n)+", -1)) {
+        for (String p : PARAGRAPH_BREAK.split(Py.strip(text), -1)) {
             if (Py.strip(p).isEmpty()) continue;
             String paragraph = Py.strip(p, "\n");
             b.append("<p style=\"margin:0 0 12px\">").append(Py.escape(paragraph).replace("\n", "<br/>")).append("</p>");

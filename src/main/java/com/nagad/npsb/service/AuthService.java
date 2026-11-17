@@ -176,19 +176,13 @@ public class AuthService {
         } catch (NumberFormatException e) {
             return false;
         }
-        return Crypto.equal(Crypto.pbkdf2Hex(password, parts[2], iterations), parts[3]);
+        return Crypto.constantTimeEquals(Crypto.pbkdf2Hex(password, parts[2], iterations), parts[3]);
     }
 
     /** Checked when the account does not exist, so a wrong username takes as long as a wrong password */
     private static final String DUMMY_HASH = hashPassword(Crypto.tokenHex(16));
 
     /** Strength rules. The frontend shows the same rules live while typing. */
-    /** What an abandoned registration leaves behind (fixed statements: no SQL is built from values). */
-    private static final List<String> DELETE_ABANDONED_ROWS = List.of(
-            "DELETE FROM email_verification_codes WHERE user_id = ?",
-            "DELETE FROM refresh_tokens WHERE user_id = ?",
-            "DELETE FROM trusted_devices WHERE user_id = ?",
-            "DELETE FROM password_reset_tokens WHERE user_id = ?");
 
     private static final Pattern LOWERCASE = Pattern.compile("[a-z]"), UPPERCASE = Pattern.compile("[A-Z]"),
             DIGIT = Pattern.compile("\\d", Pattern.UNICODE_CHARACTER_CLASS), SYMBOL = Pattern.compile("[^A-Za-z0-9]");
@@ -378,7 +372,7 @@ public class AuthService {
 
     /** Admin accounts can only be created with the right admin code. */
     void checkAdminCode(String role, String code, String username) {
-        if ("admin".equals(role) && !Crypto.equal(Py.strip(code), live.adminSignupCode())) {
+        if ("admin".equals(role) && !Crypto.constantTimeEquals(Py.strip(code), live.adminSignupCode())) {
             logEvent("admin_code_failed", null, username, false, "wrong admin code for a new admin account");
             throw new CommitThenRaise(403, "Incorrect admin code. Leave the role as User, or ask an admin for the code.");
         }
@@ -446,7 +440,7 @@ public class AuthService {
                 || record.getAttempts() >= NpsbProperties.VERIFICATION_MAX_ATTEMPTS) {
             throw new ApiException(400, EXPIRED_CODE);
         }
-        if (!Crypto.equal(record.getCodeHash(), codeHash(user, purpose, Py.strip(code)))) {
+        if (!Crypto.constantTimeEquals(record.getCodeHash(), codeHash(user, purpose, Py.strip(code)))) {
             record.setAttempts(record.getAttempts() + 1);
             int left = NpsbProperties.VERIFICATION_MAX_ATTEMPTS - record.getAttempts();
             if (left <= 0) throw new CommitThenRaise(400, "Too many wrong codes. Request a new code.");
@@ -523,7 +517,11 @@ public class AuthService {
         else return;
         for (User user : holders) {
             if (!isAbandoned(user)) continue;
-            for (String statement : DELETE_ABANDONED_ROWS) jdbc.sql(statement).params(user.getId()).update();
+            // what an abandoned registration leaves behind
+            jdbc.sql("DELETE FROM email_verification_codes WHERE user_id = ?").params(user.getId()).update();
+            jdbc.sql("DELETE FROM refresh_tokens WHERE user_id = ?").params(user.getId()).update();
+            jdbc.sql("DELETE FROM trusted_devices WHERE user_id = ?").params(user.getId()).update();
+            jdbc.sql("DELETE FROM password_reset_tokens WHERE user_id = ?").params(user.getId()).update();
             jdbc.sql("UPDATE auth_events SET user_id = NULL WHERE user_id = ?").params(user.getId()).update();
             users.delete(user);
         }
@@ -714,7 +712,7 @@ public class AuthService {
         if (pending == null || pending.getAttempts() >= NpsbProperties.VERIFICATION_MAX_ATTEMPTS) {
             throw new ApiException(400, EXPIRED_CODE);
         }
-        if (!Crypto.equal(pending.getCodeHash(), registrationCodeHash(pending, Py.strip(code)))) {
+        if (!Crypto.constantTimeEquals(pending.getCodeHash(), registrationCodeHash(pending, Py.strip(code)))) {
             pending.setAttempts(pending.getAttempts() + 1);
             int left = NpsbProperties.VERIFICATION_MAX_ATTEMPTS - pending.getAttempts();
             logEvent("login_code_failed", null, pending.getUsername(), false, "sign-up code");

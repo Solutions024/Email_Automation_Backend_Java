@@ -45,8 +45,11 @@ public final class Crypto {
         }
     }
 
-    /** hmac.compare_digest */
-    public static boolean equal(String a, String b) {
+    /**
+     * hmac.compare_digest: whether two secrets (hashes, codes) are the same, taking the same time wherever they
+     * differ, so the time an answer takes doesn't reveal how much of a guess was right.
+     */
+    public static boolean constantTimeEquals(String a, String b) {
         return MessageDigest.isEqual(a.getBytes(StandardCharsets.UTF_8), b.getBytes(StandardCharsets.UTF_8));
     }
 
@@ -140,16 +143,30 @@ public final class Crypto {
         byte[] basic = Arrays.copyOfRange(data, 0, data.length - 32);
         byte[] hmac = Arrays.copyOfRange(data, data.length - 32, data.length);
         if (!MessageDigest.isEqual(hmac, hmacSha256(signing, basic))) throw new InvalidToken();
+        byte[] iv = Arrays.copyOfRange(basic, 9, 25);
+        byte[] ciphertext = Arrays.copyOfRange(basic, 25, basic.length);
+        if (ciphertext.length == 0 || ciphertext.length % 16 != 0) throw new InvalidToken();
+        byte[] padded;
         try {
-            byte[] iv = Arrays.copyOfRange(basic, 9, 25);
-            byte[] ciphertext = Arrays.copyOfRange(basic, 25, basic.length);
-            // Fernet's format fixes AES-CBC; only tokens whose HMAC was verified above reach this point
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding"); // NOSONAR legacy read-only format, authenticated by HMAC first
+            // Fernet's format fixes AES-CBC. No padding in the cipher: the PKCS#7 padding is checked and removed below,
+            // and only tokens whose HMAC was verified above get this far, so the result can't be used as a padding oracle.
+            Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(encryption, "AES"), new IvParameterSpec(iv));
-            return cipher.doFinal(ciphertext);
+            padded = cipher.doFinal(ciphertext);
         } catch (Exception e) {
             throw new InvalidToken();
         }
+        return withoutPkcs7Padding(padded);
+    }
+
+    /** The data without its PKCS#7 padding (1 to 16 bytes, each holding the padding length); InvalidToken if malformed. */
+    private static byte[] withoutPkcs7Padding(byte[] padded) throws InvalidToken {
+        int pad = padded[padded.length - 1] & 0xff;
+        if (pad < 1 || pad > 16 || pad > padded.length) throw new InvalidToken();
+        for (int i = padded.length - pad; i < padded.length; i++) {
+            if ((padded[i] & 0xff) != pad) throw new InvalidToken();
+        }
+        return Arrays.copyOf(padded, padded.length - pad);
     }
 
     // ---------------------------------------------------------------- JWT (PyJWT, HS256)

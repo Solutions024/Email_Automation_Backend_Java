@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -22,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -52,6 +54,30 @@ public class ServerSettings {
 
         Field(String name, String label, String kind, String group, String help, int low, int high) {
             this(name, label, kind, group, help, low, high, false, new String[0][]);
+        }
+
+        // A record compares and prints an array by identity; these use the options' contents (value, label pairs).
+
+        @Override
+        public boolean equals(Object o) {
+            return this == o || (o instanceof Field f
+                    && required == f.required
+                    && Objects.equals(name, f.name) && Objects.equals(label, f.label) && Objects.equals(kind, f.kind)
+                    && Objects.equals(group, f.group) && Objects.equals(help, f.help)
+                    && Objects.equals(low, f.low) && Objects.equals(high, f.high)
+                    && Arrays.deepEquals(options, f.options));
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(name, label, kind, group, help, low, high, required) + Arrays.deepHashCode(options);
+        }
+
+        @Override
+        public String toString() {
+            return "Field[name=" + name + ", label=" + label + ", kind=" + kind + ", group=" + group + ", help=" + help
+                    + ", low=" + low + ", high=" + high + ", required=" + required
+                    + ", options=" + Arrays.deepToString(options) + "]";
         }
     }
 

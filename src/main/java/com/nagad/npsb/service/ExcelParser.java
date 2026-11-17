@@ -313,10 +313,38 @@ public final class ExcelParser {
         return b.append(s).toString();
     }
 
+    /** A number with digits before the point: 12, -12.5, 12., 1.5e3 */
+    private static final Pattern PLAIN_DECIMAL = Pattern.compile("[+-]?\\d+(?:\\.\\d*)?(?:[eE][+-]?\\d+)?");
+
+    /**
+     * The text without its "_" digit separators when they are where Decimal allows them (1_000, 1_000.000_1), else
+     * unchanged (so it is refused). Each "_" comes after a digit (or right after the point, as in "1._5") and before a
+     * digit, all before the exponent, and the rest is a PLAIN_DECIMAL. Same as stripping them when the text matched
+     * [+-]?\d+(_\d+)*(\.\d*(_\d+)*)?([eE][+-]?\d+)?|[+-]?\.\d+([eE][+-]?\d+)?, but checked one character at a time,
+     * so a long run of _1_1_1... can't overflow the stack.
+     */
+    static String withoutDigitSeparators(String t) {
+        int underscore = t.indexOf('_');
+        if (underscore < 0) return t;  // nothing to remove
+        int exponent = -1;
+        for (int i = 0; i < t.length() && exponent < 0; i++) if (t.charAt(i) == 'e' || t.charAt(i) == 'E') exponent = i;
+        for (int i = underscore; i >= 0; i = t.indexOf('_', i + 1)) {
+            if (exponent >= 0 && i > exponent) return t;
+            boolean afterDigitOrPoint = i > 0 && (isAsciiDigit(t.charAt(i - 1)) || t.charAt(i - 1) == '.');
+            boolean beforeDigit = i + 1 < t.length() && isAsciiDigit(t.charAt(i + 1));
+            if (!afterDigitOrPoint || !beforeDigit) return t;
+        }
+        String stripped = t.replace("_", "");
+        return PLAIN_DECIMAL.matcher(stripped).matches() ? stripped : t;
+    }
+
+    private static boolean isAsciiDigit(char c) {
+        return c >= '0' && c <= '9';
+    }
+
     /** Decimal(text): null when it isn't a number. */
     private static BigDecimal decimal(String text) {
-        String t = Py.strip(text);
-        if (t.matches("[+-]?\\d+(_\\d+)*(\\.\\d*(_\\d+)*)?([eE][+-]?\\d+)?|[+-]?\\.\\d+([eE][+-]?\\d+)?")) t = t.replace("_", "");
+        String t = withoutDigitSeparators(Py.strip(text));
         try {
             return new BigDecimal(t);
         } catch (NumberFormatException e) {

@@ -39,10 +39,32 @@ public class EmailCheck {
         this.live = live;
     }
 
-    private static final Pattern EMAIL_RE = Pattern.compile(
-            "(?=.{6,254}$)"
-            + "[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
-            + "@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}");
+    /** One dot-separated part of the name before the @ (no quoted names). */
+    private static final Pattern LOCAL_ATOM = Pattern.compile("[a-z0-9!#$%&'*+/=?^_`{|}~-]+");
+    /** One part of the domain: 1-63 letters, digits or -, not starting or ending with -. */
+    private static final Pattern DOMAIN_LABEL = Pattern.compile("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?");
+    /** The last part of the domain (com, bd, ...). */
+    private static final Pattern TOP_LEVEL = Pattern.compile("[a-z]{2,63}");
+
+    /**
+     * A plain, lower-case address: 6-254 characters, name@label.label...tld, the name made of LOCAL_ATOMs joined by
+     * single dots. Checked part by part, so the time and stack it takes don't grow with repeated parts. Same answers as
+     * (?=.{6,254}$)[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}
+     */
+    static boolean wellFormed(String email) {
+        if (email.length() < 6 || email.length() > 254) return false;
+        int at = email.indexOf('@');
+        if (at < 0 || at != email.lastIndexOf('@')) return false;
+        for (String atom : email.substring(0, at).split("\\.", -1)) {
+            if (!LOCAL_ATOM.matcher(atom).matches()) return false;
+        }
+        String[] labels = email.substring(at + 1).split("\\.", -1);
+        if (labels.length < 2 || !TOP_LEVEL.matcher(labels[labels.length - 1]).matches()) return false;
+        for (int i = 0; i < labels.length - 1; i++) {
+            if (!DOMAIN_LABEL.matcher(labels[i]).matches()) return false;
+        }
+        return true;
+    }
 
     /** Common throwaway inbox providers */
     private static final Set<String> DISPOSABLE_DOMAINS = Set.of(
@@ -119,7 +141,7 @@ public class EmailCheck {
     /** The normalized address, or 400 explaining why it cannot be used. */
     public String validateRealEmail(String email) {
         email = Py.strip(email).toLowerCase();
-        if (!EMAIL_RE.matcher(email).matches()) throw new ApiException(400, "Enter a valid email address.");
+        if (!wellFormed(email)) throw new ApiException(400, "Enter a valid email address.");
         String domain = email.substring(email.lastIndexOf('@') + 1);
         for (String d : DISPOSABLE_DOMAINS) {
             if (domain.equals(d) || domain.endsWith("." + d)) {
